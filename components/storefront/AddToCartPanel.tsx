@@ -1,0 +1,152 @@
+"use client";
+
+import { useState } from "react";
+import { Check, ShieldCheck } from "lucide-react";
+import { StockBadge } from "@/components/shared/StockBadge";
+import { QuantityStepper } from "@/components/storefront/QuantityStepper";
+import { useCart } from "@/components/storefront/CartProvider";
+import { formatMoney } from "@/lib/currency";
+import { storefrontStockLabel, storefrontType } from "@/lib/design-tokens";
+import type { StorefrontProduct, StorefrontProductVariant } from "@/lib/types";
+import { cn } from "@/lib/utils";
+
+interface AddToCartPanelProps {
+  product: StorefrontProduct;
+  selectedVariant: StorefrontProductVariant;
+  onSelectVariant: (slug: string) => void;
+}
+
+function variantLabel(variant: StorefrontProductVariant): string {
+  return variant.variant_name ?? variant.unit ?? "Option";
+}
+
+export function AddToCartPanel({ product, selectedVariant, onSelectVariant }: AddToCartPanelProps) {
+  const { addLine, openCart } = useCart();
+  const [quantity, setQuantity] = useState(1);
+
+  const currency = product.shop.currency;
+  const isOutOfStock = selectedVariant.stock_status === "out_of_stock";
+  const isLowStock = selectedVariant.stock_status === "low_stock";
+  const hasOtherOptions = product.variants.length > 1;
+
+  function handleAddToCart() {
+    // out_of_stock is blocked here, not left for checkout to reject.
+    if (isOutOfStock) return;
+
+    addLine(
+      {
+        variantSlug: selectedVariant.slug,
+        productName: product.name,
+        variantLabel: hasOtherOptions ? variantLabel(selectedVariant) : null,
+        unitPrice: selectedVariant.selling_price,
+        currency,
+        // The variant's own cover if it has one, else the product's — same
+        // precedence as the gallery.
+        imageUrl: (selectedVariant.images[0] ?? product.images[0])?.url ?? null,
+        stockStatus: selectedVariant.stock_status,
+      },
+      Math.max(1, Math.floor(quantity)),
+    );
+    openCart();
+  }
+
+  return (
+    <div className="flex flex-col gap-7">
+      {/* Price ---------------------------------------------------------- */}
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-black/10 pt-6">
+        <span className={cn(storefrontType.priceLarge, "text-storefront-ink")}>
+          {formatMoney(selectedVariant.selling_price, currency)}
+        </span>
+        <StockBadge
+          status={selectedVariant.stock_status}
+          label={storefrontStockLabel[selectedVariant.stock_status]}
+        />
+      </div>
+
+      {/* Options -------------------------------------------------------- */}
+      {hasOtherOptions && (
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-wrap items-baseline gap-x-2">
+            <span className={cn(storefrontType.navLabel, "text-muted-foreground")}>Option</span>
+            <span className="text-sm font-medium text-storefront-ink">
+              {variantLabel(selectedVariant)}
+            </span>
+          </div>
+
+          <div className="flex flex-wrap gap-2.5">
+            {product.variants.map((variant) => {
+              const isSelected = variant.slug === selectedVariant.slug;
+              const soldOut = variant.stock_status === "out_of_stock";
+              return (
+                <button
+                  key={variant.slug}
+                  type="button"
+                  onClick={() => onSelectVariant(variant.slug)}
+                  aria-pressed={isSelected}
+                  className={cn(
+                    "inline-flex min-w-20 items-center justify-center gap-1.5 rounded-xl border px-4 py-3 text-sm transition-all",
+                    isSelected
+                      ? "border-storefront-ink bg-storefront-ink font-medium text-storefront-bg shadow-sm"
+                      : "border-black/10 bg-white text-storefront-ink hover:border-storefront-ink/50 hover:shadow-sm",
+                    soldOut && !isSelected && "text-muted-foreground line-through",
+                  )}
+                >
+                  {isSelected && <Check className="size-3.5 shrink-0" aria-hidden="true" />}
+                  {variantLabel(variant)}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Availability note ---------------------------------------------- */}
+      {isOutOfStock ? (
+        <p className="rounded-xl bg-muted px-4 py-3 text-sm text-muted-foreground">
+          {hasOtherOptions
+            ? "This option is sold out — choose another above."
+            : "This item is sold out right now. Check back soon."}
+        </p>
+      ) : (
+        isLowStock && (
+          <p className="rounded-xl bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
+            Checkout fast! only a few left.
+          </p>
+        )
+      )}
+
+      {/* Quantity + add ------------------------------------------------- */}
+      <div className="flex flex-col gap-3">
+        <div className="flex items-center gap-3">
+          <span className={cn(storefrontType.navLabel, "text-muted-foreground")}>Qty</span>
+          <QuantityStepper
+            size="md"
+            value={quantity}
+            onChange={setQuantity}
+            disabled={isOutOfStock}
+          />
+        </div>
+
+        <button
+          type="button"
+          onClick={handleAddToCart}
+          disabled={isOutOfStock}
+          className={cn(
+            storefrontType.navLabel,
+            "h-14 w-full rounded-xl bg-storefront-ink text-storefront-bg shadow-sm transition-all",
+            "hover:opacity-90 active:translate-y-px disabled:opacity-40 disabled:hover:opacity-40",
+          )}
+        >
+          {isOutOfStock ? "Sold out" : "Add to cart"}
+        </button>
+      </div>
+
+      {/* Reassurance ---------------------------------------------------- */}
+      <p className="flex items-start gap-2 border-t border-black/10 pt-5 text-xs leading-relaxed text-muted-foreground">
+        <ShieldCheck className="mt-px size-3.5 shrink-0" aria-hidden="true" />
+        No payment taken online — {product.shop.name} confirms your order and arranges payment with
+        you directly.
+      </p>
+    </div>
+  );
+}

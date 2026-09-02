@@ -1,5 +1,12 @@
 import { platformApiFetch } from "@/lib/api-client";
-import type { ApiResource, PaginatedResponse, PlatformInvoice } from "@/lib/types";
+import type {
+  ApiResource,
+  BillingCurrency,
+  PaginatedResponse,
+  PlatformInvoice,
+  PlatformInvoicesPageParams,
+  PlatformSubscription,
+} from "@/lib/types";
 
 // The bank-transfer review queue. This is the manual rail's equivalent of a
 // payment webhook — the only path by which a transfer becomes a paid plan —
@@ -48,5 +55,70 @@ export function rejectInvoice(id: number, reason: string): Promise<PlatformInvoi
   return platformApiFetch<ApiResource<PlatformInvoice>>(
     `/api/v1/platform/billing/invoices/${id}/reject`,
     { method: "POST", body: JSON.stringify({ reason }) },
+  ).then((res) => res.data);
+}
+
+/**
+ * The full invoice ledger across every shop.
+ *
+ * Deliberately NOT the same thing as getPendingInvoices() above, and kept as a
+ * second function rather than a filter on the first, because they answer
+ * different questions: the queue is work waiting to be done (unpaid transfers,
+ * actionable first, no filters), this is history you reconcile against a bank
+ * statement (newest first, paid and void rows included). Folding one into the
+ * other would bury the queue behind a filter nobody remembers to reset.
+ *
+ * `from`/`to` are compared with whereDate server-side, so both bounds are
+ * INCLUSIVE of the whole day — a reviewer entering a month end means "up to and
+ * including", not "up to midnight that morning".
+ */
+export function getPlatformInvoices(
+  params: PlatformInvoicesPageParams = {},
+): Promise<PaginatedResponse<PlatformInvoice>> {
+  const query = new URLSearchParams();
+  if (params.page) query.set("page", String(params.page));
+  if (params.per_page) query.set("per_page", String(params.per_page));
+  if (params.status) query.set("status", params.status);
+  if (params.rail) query.set("rail", params.rail);
+  if (params.currency) query.set("currency", params.currency);
+  if (params.tenant_id !== undefined) query.set("tenant_id", String(params.tenant_id));
+  if (params.from) query.set("from", params.from);
+  if (params.to) query.set("to", params.to);
+  const qs = query.toString();
+
+  return platformApiFetch<PaginatedResponse<PlatformInvoice>>(
+    `/api/v1/platform/billing/invoices${qs ? `?${qs}` : ""}`,
+  );
+}
+
+/**
+ * Which currency a shop is billed in — the account it transfers to and which
+ * price list applies. Staff-only because, left to the shop, it would be an
+ * arbitrage lever rather than a preference: the ladders are not at parity
+ * across currencies and the gap moves with FX.
+ *
+ * `null` is not "no billing currency" — it RESTORES the default of following
+ * the shop's own selling currency, which is right for almost every shop. That
+ * is why it is the reset value rather than an error, and why the UI has to
+ * offer it as a real choice.
+ *
+ * Changing it VOIDS every pending manual invoice on the subscription (they
+ * were raised in the old currency and can never be paid now), so this
+ * invalidates the review queue as well as the ledger — see
+ * useSetBillingCurrency.
+ *
+ * Takes a SUBSCRIPTION id, not a shop id. The only place one is ever
+ * published is PlatformShopResource's subscription block, which is why this
+ * endpoint was unreachable until the shop directory existed.
+ */
+export function setBillingCurrency(
+  subscriptionId: number,
+  currency: BillingCurrency | null,
+): Promise<PlatformSubscription> {
+  return platformApiFetch<ApiResource<PlatformSubscription>>(
+    `/api/v1/platform/subscriptions/${subscriptionId}/billing-currency`,
+    // `currency` is `present, nullable` server-side — the key must be sent
+    // even when the value is null, so this can't be built conditionally.
+    { method: "POST", body: JSON.stringify({ currency }) },
   ).then((res) => res.data);
 }

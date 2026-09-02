@@ -2,10 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { toast } from "sonner";
 import { ApiError } from "@/lib/api-client";
 import { useRegister } from "@/lib/hooks/useRegister";
-import { setStoredTenantSlug, setStoredToken, setStoredUserName } from "@/lib/auth";
 import { slugify, validateSlug } from "@/lib/slug";
 import {
   DEFAULT_CURRENCY,
@@ -169,16 +167,15 @@ export default function RegisterPage() {
         timezone: form.timezone,
       });
 
-      // 201 carries a token, so the owner is already logged in — this is the
-      // same storage step the login page does, not a second auth call.
-      setStoredToken(result.token);
-      setStoredUserName(result.data.name);
-      if (result.data.tenant_slug) {
-        setStoredTenantSlug(result.data.tenant_slug);
-      }
-
-      toast.success("Your shop is ready.");
-      router.push("/dashboard");
+      // Nothing is stored here, and that is the point: registering is not
+      // authenticating. The 201 carries no token, so there is nothing to
+      // store — the token, the user name and the tenant slug are all written
+      // by the login flow, which is the only thing that has one.
+      //
+      // The email rides along so the login screen can prefill it, and
+      // registered=1 so it can say the shop was created rather than dropping
+      // the owner on a bare form wondering whether it worked.
+      router.push(`/login?registered=1&email=${encodeURIComponent(result.data.email)}`);
     } catch {
       // Surfaced via the field/general errors below — mutateAsync rejecting
       // here is the expected path, not a bug to handle further.

@@ -3,12 +3,14 @@
 import { useState } from "react";
 import { ExternalLink, ReceiptText } from "lucide-react";
 import { useBillingInvoices } from "@/lib/hooks/useBillingInvoices";
+import { useBilling } from "@/lib/hooks/useBilling";
 import { InvoiceProofField } from "@/components/admin/InvoiceProofField";
 import { TableCard } from "@/components/shared/TableCard";
 import { TablePagination } from "@/components/shared/TablePagination";
 import { TableSkeleton } from "@/components/shared/TableSkeleton";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { ApiErrorState } from "@/components/shared/ApiErrorState";
+import { InvoiceStatusBadge } from "@/components/shared/InvoiceStatusBadge";
 import {
   Table,
   TableBody,
@@ -17,11 +19,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
-import { formatBillingDate, invoiceStatusLabel, invoiceStatusStyle } from "@/lib/billing";
+import { formatBillingDate, isInvoicePayable } from "@/lib/billing";
 import { formatMoney } from "@/lib/currency";
 import type { SubscriptionInvoice } from "@/lib/types";
-import { statusPill, typography } from "@/lib/design-tokens";
+import { typography } from "@/lib/design-tokens";
 import { cn } from "@/lib/utils";
 
 const COLUMNS = ["Reference", "Plan", "Period", "Amount", "Status", ""] as const;
@@ -60,6 +61,25 @@ function period(invoice: SubscriptionInvoice): string {
 export function BillingInvoiceHistory() {
   const [page, setPage] = useState(1);
   const { data, isPending, error } = useBillingInvoices(page);
+
+  // An unpaid invoice is sitting in front of platform staff, in their console,
+  // in their browser — and their ruling reaches this tab through nothing at
+  // all. The query above already polls itself for the status column; this is
+  // the rest of the screen, which the same approval also changes: the status
+  // card, the plan grid, and the app-wide subscription banner.
+  //
+  // Subscribing to the SAME ["billing"] entry adds a refetch interval to it
+  // rather than issuing a second request — the exact move BillingReturnNotice
+  // makes for the Stripe return trip, for the same reason. This component is
+  // the only one on the screen that knows an invoice is outstanding, so it
+  // owns the poll that fact implies, without rendering any of the data it
+  // keeps fresh or claiming anything about it.
+  //
+  // Reads the CURRENT page, so paging back through old history stops the poll.
+  // That's correct rather than a gap: unpaid invoices are newest-first on page
+  // one, and a shop reading page three isn't watching for a ruling.
+  const isAwaitingReview = data?.data.some(isInvoicePayable) ?? false;
+  useBilling({ pollWhileAwaitingReview: isAwaitingReview });
 
   if (error) {
     return <ApiErrorState error={error} fallback="Could not load your payment history." />;
@@ -121,12 +141,7 @@ export function BillingInvoiceHistory() {
                 {formatMoney(invoice.amount, invoice.currency)}
               </TableCell>
               <TableCell>
-                <Badge
-                  variant="outline"
-                  className={cn(statusPill, invoiceStatusStyle(invoice.status))}
-                >
-                  {invoiceStatusLabel(invoice)}
-                </Badge>
+                <InvoiceStatusBadge invoice={invoice} />
               </TableCell>
               <TableCell>
                 <div className="flex flex-wrap items-center justify-end gap-3">

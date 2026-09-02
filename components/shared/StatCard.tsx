@@ -2,6 +2,8 @@ import type { LucideIcon } from "lucide-react";
 import { typography, surface } from "@/lib/design-tokens";
 import { cn } from "@/lib/utils";
 
+// In shared/ rather than admin/: the platform console's shop detail counts
+// products and orders with the same card. See FilterBar for the general rule.
 type StatCardTone = "default" | "warning" | "success" | "info" | "violet" | "rose" | "muted";
 
 // Tone now colours the glyph and lets the chip behind it derive its own

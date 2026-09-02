@@ -5,6 +5,7 @@ import type {
   BillingPlan,
   BillingRail,
   PlatformInvoice,
+  RailStatus,
   Subscription,
   SubscriptionInvoice,
 } from "@/lib/types";
@@ -178,6 +179,103 @@ export function isInvoicePayable(invoice: SubscriptionInvoice): boolean {
 
 export function invoiceStatusStyle(status: string): string {
   return invoiceStatusClassName[status] ?? "";
+}
+
+// ---------------------------------------------------------------------------
+// Why a rail isn't on offer
+// ---------------------------------------------------------------------------
+
+const RAIL_LABELS: Record<BillingRail, string> = {
+  stripe: "Card payment",
+  manual: "Bank transfer",
+};
+
+function railLabels(rails: BillingRail[]): string {
+  const names = rails.map((rail) => RAIL_LABELS[rail] ?? rail);
+  if (names.length <= 1) return names[0] ?? "";
+  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1].toLowerCase()}`;
+}
+
+export interface RailAvailabilityCopy {
+  // Rails that can NEVER work in this currency. A statement of fact with no
+  // call to action, and deliberately without the word "yet" — the backend
+  // strips it from its own refusal message for the same reason, and has a test
+  // asserting its absence. Null when every rail is at least theoretically
+  // possible here.
+  permanent: string | null;
+  // Rails that could work but aren't ready — ours to fix, so this one asks the
+  // shop to get in touch. Null when there are none.
+  //
+  // Only worth showing when NOTHING is payable: a shop that can already pay by
+  // transfer does not need to be told the card rail is still being wired up.
+  fixable: string | null;
+}
+
+/**
+ * What to say about the rails this plan isn't offering.
+ *
+ * The whole reason this exists is that one sentence used to cover two
+ * completely different situations. "No payment option is set up in MMK yet —
+ * get in touch" is right when we haven't finished configuring something, and
+ * actively misleading for a Myanmar shop: Stripe has no Kyat support and never
+ * will, so that shop was being told to wait for something that cannot arrive,
+ * and to spend a support ticket finding out.
+ *
+ * So the two are separated by their REMEDY, which is the only distinction the
+ * reader cares about: one is a fact to accept, the other is a thing we owe
+ * them.
+ *
+ * `plan.rails` remains the source of truth for which buttons appear — this
+ * only supplies words. An unrecognised status counts as fixable rather than
+ * permanent: a reason added server-side later degrades to the actionable ask
+ * instead of to a shrug, the same way parseBillingError() treats an unknown
+ * 402 reason as still an upgrade prompt.
+ */
+export function describeRailAvailability(plan: BillingPlan): RailAvailabilityCopy {
+  const entries = Object.entries(plan.rail_status ?? {}) as [BillingRail, RailStatus][];
+
+  const permanentRails = entries
+    .filter(([, status]) => status === "currency_unsupported")
+    .map(([rail]) => rail);
+
+  const fixableRails = entries
+    .filter(([, status]) => status !== "available" && status !== "currency_unsupported")
+    .map(([rail]) => rail);
+
+  let permanent: string | null = null;
+  if (permanentRails.length > 0) {
+    const verb = permanentRails.length === 1 ? "isn't" : "aren't";
+    permanent = `${railLabels(permanentRails)} ${verb} available in ${plan.currency}.`;
+
+    // Only when exactly one rail is left standing — otherwise "the only way"
+    // is simply false. This is the reassurance a Kyat shop needs: it can see
+    // the transfer button, and now knows the missing card button isn't
+    // something it should wait for.
+    if (plan.rails.length === 1) {
+      permanent += ` ${RAIL_LABELS[plan.rails[0]]} is the only way to pay from here.`;
+    }
+  }
+
+  let fixable: string | null = null;
+  if (fixableRails.length > 0) {
+    fixable =
+      // True exactly when every rail is in this bucket, which is when the
+      // original generic wording is still the most natural way to say it.
+      fixableRails.length === entries.length
+        ? `No payment option is set up for this plan in ${plan.currency} yet — get in touch and we'll sort it out.`
+        : `${railLabels(fixableRails)} ${
+            fixableRails.length === 1 ? "isn't" : "aren't"
+          } set up in ${plan.currency} yet — get in touch and we'll sort it out.`;
+  }
+
+  // Nothing payable and nothing explained — an API that predates rail_status.
+  // `rails` alone still tells us no self-serve option exists, so fall back to
+  // the wording this card carried before the server started explaining itself.
+  if (plan.rails.length === 0 && permanent === null && fixable === null) {
+    fixable = `No payment option is set up for this plan in ${plan.currency} yet — get in touch and we'll sort it out.`;
+  }
+
+  return { permanent, fixable };
 }
 
 // "Up to 50 products" / "Unlimited products". null is unlimited, never zero —

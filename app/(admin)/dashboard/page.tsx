@@ -21,7 +21,7 @@ import { PageHeader } from "@/components/shared/PageHeader";
 import { TableCard } from "@/components/shared/TableCard";
 import { ErrorState } from "@/components/shared/ErrorState";
 import { EmptyState } from "@/components/shared/EmptyState";
-import { StatCard } from "@/components/admin/StatCard";
+import { StatCard } from "@/components/shared/StatCard";
 import { RecentOrdersTable } from "@/components/admin/RecentOrdersTable";
 import { LowStockList } from "@/components/admin/LowStockList";
 import { PreorderBacklogList } from "@/components/admin/PreorderBacklogList";

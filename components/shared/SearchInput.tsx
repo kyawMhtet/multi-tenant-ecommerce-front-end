@@ -16,7 +16,8 @@ interface SearchInputProps {
 }
 
 /**
- * The list screens' search field.
+ * The list screens' search field — admin and platform console alike (which is
+ * why it lives in shared/; see FilterBar).
  *
  * A bare <Input> is 32px tall with a 4px inset — fine for a form row, far
  * too slight for the control a list screen is driven by. This is the one

@@ -38,7 +38,7 @@ export default function PlatformLoginPage() {
       const result = await login.mutateAsync({ email, password });
       setStoredPlatformToken(result.token);
       setStoredPlatformAdminName(result.admin.name);
-      router.push("/platform/billing");
+      router.push("/platform/shops");
     } catch {
       // Surfaced via error below.
     }

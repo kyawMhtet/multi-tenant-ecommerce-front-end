@@ -1,7 +1,7 @@
 "use client";
 
-import { FilterBar } from "@/components/admin/FilterBar";
-import { DateRangePicker } from "@/components/admin/DateRangePicker";
+import { FilterBar } from "@/components/shared/FilterBar";
+import { DateRangePicker } from "@/components/shared/DateRangePicker";
 import {
   Select,
   SelectContent,

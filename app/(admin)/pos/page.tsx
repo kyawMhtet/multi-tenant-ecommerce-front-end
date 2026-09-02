@@ -14,7 +14,7 @@ import { ErrorState } from "@/components/shared/ErrorState";
 import { POSCart, type CartLine } from "@/components/admin/POSCart";
 import { ReceiptView } from "@/components/admin/ReceiptView";
 import { VariantPickerDialog } from "@/components/admin/VariantPickerDialog";
-import { SearchInput } from "@/components/admin/SearchInput";
+import { SearchInput } from "@/components/shared/SearchInput";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";

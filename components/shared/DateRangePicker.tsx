@@ -14,10 +14,12 @@ import {
 import { controls } from "@/lib/design-tokens";
 import { cn } from "@/lib/utils";
 
-// Structurally what both callers want — SalesProfitReportParams on the
-// reports screen, the date half of OrderFilterParams on the orders list —
-// so the picker doesn't have to know which screen it's on. An empty object
-// means "no range", which is how Clear reports itself.
+// Structurally what its callers want — SalesProfitReportParams on the
+// reports screen, the date half of OrderFilterParams on the orders list, and
+// the from/to pair on the platform ledger (which translates the names at its
+// own call site rather than adding a second prop shape here) — so the picker
+// doesn't have to know which screen it's on. An empty object means "no range",
+// which is how Clear reports itself.
 export interface DateRangeValue {
   date_from?: string;
   date_to?: string;

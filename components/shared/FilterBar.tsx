@@ -23,6 +23,12 @@ interface FilterBarProps {
 /**
  * The toolbar above a list screen's table.
  *
+ * In shared/ rather than admin/ because the platform staff console filters its
+ * shop directory and invoice ledger with the same bar — same reasoning as
+ * AuthField, which both login screens use. It's a layout shell with no session
+ * or nav in it, so the two identities can share it without growing anything
+ * they're supposed to keep apart.
+ *
  * Previously each screen laid its filters out as bare controls floating on
  * the page ground, which left the table looking like it started at a random
  * vertical offset. Giving them a surface of their own — same radius and

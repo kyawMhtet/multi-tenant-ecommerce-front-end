@@ -5,9 +5,8 @@ import { SHOP_CURRENCIES, type ShopCurrency } from "@/lib/types";
 export const DEFAULT_TIMEZONE = "Asia/Yangon";
 export const DEFAULT_CURRENCY: ShopCurrency = "MMK";
 
-// Enough to keep the picker usable if Intl.supportedValuesOf is missing
-// (it's ES2022 — everywhere current, but this is a signup form and an empty
-// dropdown would be a dead end rather than a degraded one).
+const MYANMAR_TIMEZONE_ALIASES = ["Asia/Myanmar", "Asia/Rangoon", "Asia/Yangon"];
+
 const FALLBACK_TIMEZONES = [
   "Asia/Yangon",
   "Asia/Bangkok",
@@ -33,7 +32,10 @@ const FALLBACK_TIMEZONES = [
  */
 export function listTimezones(): string[] {
   const supported = Intl.supportedValuesOf?.("timeZone");
-  return supported && supported.length > 0 ? [...supported] : FALLBACK_TIMEZONES;
+  const zones = supported && supported.length > 0 ? [...supported] : FALLBACK_TIMEZONES;
+  return [...new Set([...zones, ...MYANMAR_TIMEZONE_ALIASES])].sort((a, b) =>
+    a.localeCompare(b),
+  );
 }
 
 /**
@@ -55,6 +57,7 @@ export function detectTimezone(): string {
 const CURRENCY_BY_TIMEZONE: Record<string, ShopCurrency> = {
   "Asia/Yangon": "MMK",
   "Asia/Rangoon": "MMK",
+  "Asia/Myanmar": "MMK",
   "Asia/Bangkok": "THB",
 };
 
@@ -63,7 +66,8 @@ const CURRENCY_BY_TIMEZONE: Record<string, ShopCurrency> = {
  * gets the API's own default rather than a guess dressed up as a detection.
  */
 export function suggestCurrency(timezone: string): ShopCurrency {
-  return CURRENCY_BY_TIMEZONE[timezone] ?? DEFAULT_CURRENCY;
+  const normalized = timezone === "Asia/Myanmar" ? "Asia/Yangon" : timezone;
+  return CURRENCY_BY_TIMEZONE[normalized] ?? DEFAULT_CURRENCY;
 }
 
 export function isShopCurrency(value: string): value is ShopCurrency {
@@ -86,9 +90,11 @@ export function timezoneCityLabel(timezone: string): string {
  * and returns null rather than throwing on a zone Intl rejects.
  */
 export function timezoneOffsetLabel(timezone: string): string | null {
+  const resolvedTimezone = timezone === "Asia/Myanmar" ? "Asia/Yangon" : timezone;
+
   try {
     const parts = new Intl.DateTimeFormat("en-US", {
-      timeZone: timezone,
+      timeZone: resolvedTimezone,
       timeZoneName: "shortOffset",
     }).formatToParts(new Date());
     return parts.find((part) => part.type === "timeZoneName")?.value ?? null;

@@ -230,3 +230,45 @@ export const invoiceStatusClassName: Record<string, string> = {
   // a rejected transfer, which does need acting on.
   void: "bg-muted text-muted-foreground",
 };
+
+// Subscription status as PLATFORM STAFF filter it — the four values
+// IndexPlatformShopRequest accepts. Keyed loosely like the maps above so an
+// unrecognised value falls back to the neutral Badge style.
+//
+// Same washes as orderStatusClassName so the whole app keeps one status
+// vocabulary: a reviewer who has learned that amber means "act soon" on an
+// order reads it the same way on a shop.
+export const subscriptionStatusClassName: Record<string, string> = {
+  active: "bg-emerald-100 text-emerald-800",
+  // Sky, not emerald: a trial is working but hasn't paid, and colouring it
+  // like an active subscription would hide exactly the rows worth chasing.
+  trialing: "bg-sky-100 text-sky-900",
+  past_due: "bg-amber-100 text-amber-800",
+  cancelled: "bg-muted text-muted-foreground",
+};
+
+// Flags on a shop row in the platform console (see shopFlags() in
+// lib/platform-shops.ts). Ordered here by severity, same as they render.
+export const shopFlagClassName: Record<string, string> = {
+  // Deliberately the app's own ink rather than another coloured wash: a
+  // suspension is something WE did, not a state the shop drifted into. It has
+  // to be distinguishable at a glance from read-only, which is billing's doing
+  // and reversible by the shop paying — the two have completely different
+  // remedies and must not read as shades of the same problem.
+  suspended: "bg-foreground text-background",
+  // Already broken.
+  readOnly: "bg-red-100 text-red-800",
+  // Broken soon, still fixable — the loudest warning that isn't a failure.
+  grace: "bg-amber-100 text-amber-800",
+  trial: "bg-sky-100 text-sky-900",
+  // The hard kill switch. Not settable from the console, so this is
+  // information rather than a state anyone here can act on.
+  inactive: "bg-red-100 text-red-800",
+};
+
+// Platform staff accounts. Only two states, and "inactive" is the one worth
+// seeing: an active admin is the expected default.
+export const staffStatusClassName: Record<string, string> = {
+  active: "bg-emerald-100 text-emerald-800",
+  inactive: "bg-muted text-muted-foreground",
+};

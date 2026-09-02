@@ -1,8 +1,9 @@
 import { ImageOff, Mail, Phone } from "lucide-react";
 import { ImageLightbox } from "@/components/shared/ImageLightbox";
+import { InvoiceStatusBadge } from "@/components/shared/InvoiceStatusBadge";
 import { ReviewInvoiceDialog } from "@/components/platform/ReviewInvoiceDialog";
 import { Badge } from "@/components/ui/badge";
-import { formatBillingDate, invoiceStatusLabel, invoiceStatusStyle } from "@/lib/billing";
+import { formatBillingDate } from "@/lib/billing";
 import { formatMoney } from "@/lib/currency";
 import type { PlatformInvoice } from "@/lib/types";
 import { notice, noticeTone, statusPill, surface, typography } from "@/lib/design-tokens";
@@ -55,12 +56,7 @@ export function PendingInvoiceCard({ invoice }: { invoice: PlatformInvoice }) {
                 {invoice.shop.slug}
               </Badge>
             )}
-            <Badge
-              variant="outline"
-              className={cn(statusPill, invoiceStatusStyle(invoice.status))}
-            >
-              {invoiceStatusLabel(invoice)}
-            </Badge>
+            <InvoiceStatusBadge invoice={invoice} />
           </div>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
             {invoice.shop.owner_email && (

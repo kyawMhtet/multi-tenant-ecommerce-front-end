@@ -3,8 +3,8 @@
 import { AlertTriangle } from "lucide-react";
 import { useCategories } from "@/lib/hooks/useCategories";
 import { Button } from "@/components/ui/button";
-import { FilterBar } from "@/components/admin/FilterBar";
-import { SearchInput } from "@/components/admin/SearchInput";
+import { FilterBar } from "@/components/shared/FilterBar";
+import { SearchInput } from "@/components/shared/SearchInput";
 import {
   Select,
   SelectContent,

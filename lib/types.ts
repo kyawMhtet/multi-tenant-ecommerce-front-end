@@ -462,10 +462,22 @@ export const SHOP_CURRENCIES = ["MMK", "THB", "USD"] as const;
 
 export type ShopCurrency = (typeof SHOP_CURRENCIES)[number];
 
-// 201 with the exact same shape as LoginResponse (token alongside `data`,
-// not nested inside it), so a successful signup logs the owner in outright —
-// there is no follow-up call to /api/v1/login.
-export type RegisterResponse = LoginResponse;
+// 201 with the created account and NO token: registering is not
+// authenticating. The owner is sent to /login to enter the password they just
+// chose, which keeps token issuance in exactly one place and leaves the seam
+// where email verification would go.
+//
+// Deliberately NOT `= LoginResponse` any more. It used to be, and the day the
+// backend dropped the token this app kept reading `result.token` — writing the
+// string "undefined" into localStorage, so every later request sent
+// `Bearer undefined` and the app looked signed in while 401ing on everything.
+// A distinct type is what makes that a compile error instead.
+//
+// The account still comes back so the login screen can prefill the email
+// rather than making them retype it.
+export interface RegisterResponse {
+  data: AuthUser;
+}
 
 export interface AuthUser {
   id: number;
@@ -1165,6 +1177,21 @@ export interface PlanLimits {
   staff: number | null;
 }
 
+// Why a rail is or isn't usable for a given plan in a given currency.
+//
+// The split that matters is PERMANENT vs OURS TO FIX:
+//   "currency_unsupported" — the provider cannot do this currency and no
+//       configuration will change that (Stripe has no MMK support). A
+//       statement, never a call to action, and never the word "yet".
+//   "not_configured" / "disabled" — this deployment hasn't finished setting it
+//       up, or switched it off. Ours to fix, so "get in touch" is the right
+//       ask.
+export type RailStatus =
+  | "available"
+  | "currency_unsupported"
+  | "not_configured"
+  | "disabled";
+
 // Mirrors App\Http\Resources\PlanResource. `features` are PlanFeature enum
 // values ("card_payments", "profit_reports", "preorder"); read as an open
 // string list so a new backend feature renders rather than crashing.
@@ -1183,6 +1210,16 @@ export interface BillingPlan {
   // the dead button this list exists to prevent, and it is permanently empty
   // of "stripe" for MMK shops.
   rails: BillingRail[];
+  // WHY each rail can or can't be used — every rail, including the usable
+  // ones, unlike `rails` which lists only those. Mirrors
+  // App\Services\Billing\Data\RailAvailability.
+  //
+  // `rails` stays the source of truth for which buttons to render. This is
+  // purely what to SAY about the ones that are missing, and the distinction it
+  // draws is the point: "we haven't set this up" and "this can never work in
+  // your currency" were indistinguishable before, so a Kyat shop was invited
+  // to get in touch about a card option that will never exist.
+  rail_status: Record<BillingRail, RailStatus>;
   is_current: boolean;
 }
 
@@ -1317,4 +1354,235 @@ export interface PlatformInvoice {
   reviewed_at: string | null;
   note: string | null;
   created_at: string;
+}
+
+// ---------------------------------------------------------------------------
+// Platform console: the shop directory
+// ---------------------------------------------------------------------------
+
+// The plan codes the platform sells, and the ONLY values the directory's
+// `plan` filter accepts — an unknown one is a 422, not an empty page. A closed
+// union for the same reason SHOP_CURRENCIES is one: this app decides what it
+// submits. Mirrors PlanCatalog::PLANS' keys.
+export const PLATFORM_PLANS = ["starter", "pro"] as const;
+
+export type PlatformPlan = (typeof PLATFORM_PLANS)[number];
+
+// subscriptions.status as the directory filters it. Not the same list as
+// Subscription.status above, which is read as an open string because it's a
+// plain column — this is the closed set IndexPlatformShopRequest validates
+// against, and sending anything else is a 422.
+//
+// Note "past_due", which the shop-facing app never names: to a shop that state
+// is described in words by summariseSubscription(), but staff filter by it.
+export const PLATFORM_SUBSCRIPTION_STATUSES = [
+  "trialing",
+  "active",
+  "past_due",
+  "cancelled",
+] as const;
+
+export type PlatformSubscriptionStatus = (typeof PLATFORM_SUBSCRIPTION_STATUSES)[number];
+
+// Mirrors the `subscription` block of App\Http\Resources\PlatformShopResource.
+//
+// Deliberately NOT the Subscription type above. That one is what a shop is
+// told about itself and carries the whole grace/cancellation vocabulary; this
+// is the staff-facing summary, and it has a field Subscription can never
+// have — the subscription's own `id`, which is what makes the
+// billing-currency endpoint reachable at all.
+export interface PlatformShopSubscription {
+  // The route parameter for POST /platform/subscriptions/{id}/billing-currency.
+  // Nothing else in either app knows a subscription id.
+  id: number;
+  // effectivePlan() server-side, never the raw column: a shop with a scheduled
+  // downgrade is still on the plan it paid for, and a LAPSED shop is not
+  // downgraded at all — it keeps its plan and goes read-only. Always print
+  // plan_label rather than inferring a plan from what the shop can do.
+  plan: string;
+  plan_label: string;
+  status: string;
+  rail: BillingRail | null;
+  // What the shop pays US in. NOT the same fact as the shop's
+  // selling_currency, and a Kyat-selling shop can legitimately be billed in
+  // Baht — see BillingCurrency::for(). Labelling both "currency" in one table
+  // would make the directory actively misleading.
+  billing_currency: BillingCurrency;
+  is_on_trial: boolean;
+  // Past the paid period but STILL WORKING — the window in which staff can
+  // still help the shop fix it before anything stops.
+  is_in_grace: boolean;
+  is_read_only: boolean;
+  current_period_ends_at: string | null;
+  // A scheduled downgrade. Unlike Subscription's version of these fields,
+  // they're plain nullable columns here (no $this->when()), so null — not
+  // absent — is the "nothing scheduled" answer.
+  //
+  // There is no pending_plan_LABEL on this resource, which is why
+  // lib/platform-shops.ts has to label the code itself.
+  pending_plan: string | null;
+  pending_plan_starts_at: string | null;
+}
+
+// Mirrors App\Http\Resources\PlatformShopResource — one shop as OUR staff see
+// it. A separate resource from TenantResource server-side precisely because
+// this one carries the owner's contact details and the shop's billing
+// internals; it must never be rendered on a shop-facing screen.
+//
+// The same type serves the directory row and the detail page: the extra fields
+// are gated with whenLoaded/whenCounted rather than split into a second
+// resource, so a list row and a detail page can never disagree about a shop.
+export interface PlatformShop {
+  id: number;
+  name: string;
+  slug: string;
+  owner_name: string | null;
+  owner_email: string | null;
+  owner_phone: string | null;
+  // What the shop SELLS in (tenants.currency). See
+  // PlatformShopSubscription.billing_currency for the other one.
+  selling_currency: string | null;
+  timezone: string | null;
+  // The hard kill switch. Read-only here on purpose: it is the fraud hammer
+  // and it strands customers mid-order, so this app shows it and never offers
+  // to flip it. Suspension below is the reversible, owner-only action.
+  is_active: boolean;
+  // The OWNER is locked out of their admin. The storefront keeps serving and
+  // customers can still complete checkout — that asymmetry is the entire
+  // reason suspension exists apart from is_active.
+  is_suspended: boolean;
+  suspended_at: string | null;
+  suspension_reason: string | null;
+  created_at: string;
+  // Null for a shop created around the app (no subscription row at all).
+  // Absent on responses that don't load the relation — every endpoint this app
+  // calls does load it, but the field stays optional so a partial payload
+  // reads as "unknown" rather than crashing.
+  subscription?: PlatformShopSubscription | null;
+  // Detail only (whenCounted). The quickest read on a real business versus a
+  // dead signup, which is the first thing worth knowing when a shop turns up
+  // in the support queue.
+  products_count?: number;
+  orders_count?: number;
+  // Detail only (whenLoaded) — the latest 20, newest first.
+  invoices?: PlatformInvoice[];
+}
+
+// GET /api/v1/platform/shops. Every value here is validated against a
+// catalogue server-side, so a typo is a 422 rather than an empty list that
+// would read as "no such shops" — which is why the UI drives these from fixed
+// option lists rather than free text.
+export interface PlatformShopFilters {
+  // Matches name, slug or owner_email — the three things a support request
+  // actually arrives with.
+  search?: string;
+  plan?: PlatformPlan;
+  status?: PlatformSubscriptionStatus;
+  rail?: BillingRail;
+  // The SELLING currency (tenants.currency), not the billing one.
+  currency?: ShopCurrency;
+  suspended?: boolean;
+}
+
+export interface PlatformShopsPageParams extends PlatformShopFilters {
+  page?: number;
+  per_page?: number;
+}
+
+// POST /platform/shops/{id}/suspend. The reason is REQUIRED (5–500 server-side)
+// and it is what the owner is shown on their 403, so it can't be a throwaway.
+export interface SuspendShopPayload {
+  reason: string;
+}
+
+// ---------------------------------------------------------------------------
+// Platform console: the invoice ledger
+// ---------------------------------------------------------------------------
+
+// subscription_invoices.status, as the ledger filters it. Closed here (unlike
+// SubscriptionInvoice.status, read as an open string) because these are the
+// only four IndexPlatformInvoiceRequest accepts.
+export const PLATFORM_INVOICE_STATUSES = ["pending", "paid", "failed", "void"] as const;
+
+export type PlatformInvoiceStatus = (typeof PLATFORM_INVOICE_STATUSES)[number];
+
+// GET /api/v1/platform/billing/invoices — history to reconcile against a bank
+// statement, deliberately separate from the pending QUEUE.
+export interface PlatformInvoiceFilters {
+  // "void" appears here and never in the queue: the shop asked for a different
+  // plan, or staff changed its billing currency, before paying.
+  status?: PlatformInvoiceStatus;
+  rail?: BillingRail;
+  // The BILLING currency (what the shop pays us in), so THB/MMK only — not the
+  // three selling currencies.
+  currency?: BillingCurrency;
+  tenant_id?: number;
+  // yyyy-MM-dd. Both bounds are INCLUSIVE of the whole day — the backend
+  // compares with whereDate, so `to` covers everything raised that day.
+  from?: string;
+  to?: string;
+}
+
+export interface PlatformInvoicesPageParams extends PlatformInvoiceFilters {
+  page?: number;
+  per_page?: number;
+}
+
+// Mirrors App\Http\Resources\PlatformSubscriptionResource — what the
+// billing-currency setter answers with. Reports the override and the effective
+// answer SEPARATELY, which is the whole point of the field: null means "follows
+// the shop's selling currency" (right for almost every shop), and a value means
+// someone deliberately decided otherwise.
+export interface PlatformSubscription {
+  id: number;
+  shop: {
+    id: number | null;
+    name: string | null;
+    slug: string | null;
+    selling_currency: string | null;
+  };
+  plan: string;
+  plan_label: string;
+  status: string;
+  rail: BillingRail | null;
+  // null = no override, i.e. following the shop's selling currency.
+  billing_currency_override: BillingCurrency | null;
+  // The resolved answer after the override, the selling currency and the
+  // platform default have been tried in that order.
+  billing_currency: BillingCurrency;
+  current_period_ends_at: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Platform console: staff accounts
+// ---------------------------------------------------------------------------
+
+// Mirrors App\Http\Resources\PlatformAdminResource — the STAFF LIST row.
+//
+// Deliberately a different type from PlatformAdmin above, which is the
+// hand-built payload PlatformAuthController::me() returns for the signed-in
+// admin. They overlap but are not the same shape: only this one carries
+// is_active and created_at, and only /me is a promise about the current
+// session. Matching the two by `id` is what lets the staff screen disable
+// deactivation on your own row.
+export interface PlatformStaffAccount {
+  id: number;
+  name: string;
+  email: string;
+  // Deactivation is not deletion. EnsurePlatformAdmin re-checks this on every
+  // request, so it takes effect on the deactivated admin's very next one —
+  // and reactivating restores the account without a fresh sign-in, because
+  // their tokens are kept.
+  is_active: boolean;
+  last_login_at: string | null;
+  created_at: string;
+}
+
+// POST /api/v1/platform/admins. The password minimum is 12, longer than the
+// shop side's 8, because these accounts can read and settle money across every
+// shop on the platform.
+export interface CreatePlatformAdminPayload {
+  name: string;
+  email: string;
+  password: string;
 }

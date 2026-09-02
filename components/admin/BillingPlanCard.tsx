@@ -4,7 +4,7 @@ import { Check } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { PlanChangeDialog } from "@/components/admin/PlanChangeDialog";
 import { featureLabel } from "@/lib/billing-error";
-import { formatPlanLimit } from "@/lib/billing";
+import { describeRailAvailability, formatPlanLimit } from "@/lib/billing";
 import { formatMoney } from "@/lib/currency";
 import type { BillingPlan, BillingRail, Subscription } from "@/lib/types";
 import { statusPill, surface, typography } from "@/lib/design-tokens";
@@ -38,6 +38,10 @@ export function BillingPlanCard({
   isBusy,
   blockedReason,
 }: BillingPlanCardProps) {
+  // What to say about the rails this plan isn't offering. `plan.rails` still
+  // decides which buttons exist; this is only the words beside them.
+  const railCopy = describeRailAvailability(plan);
+
   return (
     <div
       className={cn(
@@ -98,26 +102,45 @@ export function BillingPlanCard({
           <p className={typography.muted}>{blockedReason}</p>
         ) : plan.rails.length === 0 ? (
           // Not a dead button and not a hidden plan: the shop can see what it
-          // costs, it just can't self-serve payment for it in this currency
-          // yet. Saying so is more useful than pretending the plan isn't there.
-          <p className={typography.muted}>
-            No payment option is set up for this plan in {plan.currency} yet — get in touch and
-            we&apos;ll sort it out.
-          </p>
+          // costs, it just can't self-serve payment for it in this currency.
+          // Saying so is more useful than pretending the plan isn't there.
+          //
+          // Two sentences at most, and they are not interchangeable. The
+          // permanent one is a fact with nothing to do about it; the fixable
+          // one is a thing we owe them, so only that one asks them to get in
+          // touch. Telling a Kyat shop to get in touch about card payment
+          // sends them to wait for something that cannot arrive.
+          <>
+            {railCopy.permanent && <p className={typography.muted}>{railCopy.permanent}</p>}
+            {railCopy.fixable && <p className={typography.muted}>{railCopy.fixable}</p>}
+          </>
         ) : (
-          plan.rails.map((rail) => (
-            <PlanChangeDialog
-              key={rail}
-              plan={plan}
-              plans={plans}
-              subscription={subscription}
-              rail={rail}
-              onConfirm={() => onChoose(rail)}
-              isPrimary={rail === plan.rails[0]}
-              isBusy={isBusy}
-              isPending={pendingRail === rail}
-            />
-          ))
+          <>
+            {plan.rails.map((rail) => (
+              <PlanChangeDialog
+                key={rail}
+                plan={plan}
+                plans={plans}
+                subscription={subscription}
+                rail={rail}
+                onConfirm={() => onChoose(rail)}
+                isPrimary={rail === plan.rails[0]}
+                isBusy={isBusy}
+                isPending={pendingRail === rail}
+              />
+            ))}
+
+            {/* A quiet note under a real button, not a fallback in place of
+                one. A Kyat shop offered only "Bank transfer" would otherwise be
+                left wondering whether card is coming; one line answers it once
+                and stops it becoming a support ticket.
+                Deliberately only the PERMANENT reason — a shop that can already
+                pay does not need to hear that the other rail is still being
+                wired up. */}
+            {railCopy.permanent && (
+              <p className="text-xs text-muted-foreground text-pretty">{railCopy.permanent}</p>
+            )}
+          </>
         )}
       </div>
     </div>

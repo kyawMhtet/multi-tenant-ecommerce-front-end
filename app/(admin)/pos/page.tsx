@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { ImageOff, PackageSearch, Search, SearchX } from "lucide-react";
+import { ImageOff, PackageSearch, SearchX } from "lucide-react";
 import { ApiError } from "@/lib/api-client";
 import { useProducts } from "@/lib/hooks/useProducts";
 import { useCreateOrder } from "@/lib/hooks/useCreateOrder";
@@ -14,11 +14,11 @@ import { ErrorState } from "@/components/shared/ErrorState";
 import { POSCart, type CartLine } from "@/components/admin/POSCart";
 import { ReceiptView } from "@/components/admin/ReceiptView";
 import { VariantPickerDialog } from "@/components/admin/VariantPickerDialog";
+import { SearchInput } from "@/components/admin/SearchInput";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { stockStatusStyles } from "@/lib/design-tokens";
+import { controls, stockStatusStyles } from "@/lib/design-tokens";
 import { cn } from "@/lib/utils";
 
 const priceFormatter = new Intl.NumberFormat(undefined, {
@@ -206,16 +206,15 @@ export default function PosPage() {
         <section className="flex flex-1 flex-col gap-4">
           <PageHeader title="Checkout" />
 
-          <div className="relative">
-            <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              type="search"
-              placeholder="Search by name, SKU, or barcode..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="pl-8"
-            />
-          </div>
+          {/* Same field as the products list — on a POS the search box is
+              the whole interface, so it gets the shared 44px treatment
+              rather than a hand-rolled one that drifts from it. */}
+          <SearchInput
+            value={search}
+            onChange={setSearch}
+            label="Search products to sell"
+            placeholder="Search by name, SKU, or barcode…"
+          />
 
           {loadError && <ErrorState message={loadError} />}
 
@@ -233,7 +232,12 @@ export default function PosPage() {
                 title={`No products match "${search.trim()}"`}
                 description="Check the spelling, or try a SKU or barcode instead."
                 action={
-                  <Button type="button" variant="outline" size="sm" onClick={() => setSearch("")}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setSearch("")}
+                    className={controls.button}
+                  >
                     Clear search
                   </Button>
                 }
@@ -244,7 +248,7 @@ export default function PosPage() {
                 title="Nothing to sell yet"
                 description="Products need at least one variant with a price before they can be rung up here."
                 action={
-                  <Link href="/products/new" className={buttonVariants()}>
+                  <Link href="/products/new" className={cn(buttonVariants(), controls.button)}>
                     Add a product
                   </Link>
                 }
@@ -267,8 +271,8 @@ export default function PosPage() {
                   disabled={isFullyOutOfStock}
                   onClick={() => handleTileClick(product)}
                   className={cn(
-                    "flex min-w-0 flex-col overflow-hidden rounded-lg border bg-card text-left shadow-sm transition-all",
-                    "hover:border-primary hover:shadow-md active:scale-[0.98]",
+                    "flex min-w-0 flex-col overflow-hidden rounded-2xl border bg-card text-left transition-all",
+                    "hover:border-primary/50 hover:shadow-md active:scale-[0.98]",
                     "disabled:pointer-events-none disabled:opacity-50",
                   )}
                 >

@@ -26,6 +26,12 @@ import {
   type ShopDetailsKey,
 } from "@/components/admin/ShopDetailsForm";
 import { ShopImageField, type ShopImageFieldValue } from "@/components/admin/ShopImageField";
+import { TimezoneSelect } from "@/components/admin/TimezoneSelect";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { timezoneHoursLabel } from "@/lib/timezones";
+import { controls, typography } from "@/lib/design-tokens";
+import { cn } from "@/lib/utils";
 import {
   FULFILLMENT_OPTION_KEYS,
   FulfillmentOptionsForm,
@@ -43,6 +49,10 @@ interface ShopProfileFormState extends ShopDetailsFormState {
   business_hours: BusinessHours;
   social_links: SocialLinksFormState;
   fulfillment: FulfillmentOptionsState;
+  // A string like every other field here, even though it's money: it's what
+  // the input holds, and "" is a state the user can reach mid-typing.
+  delivery_fee: string;
+  timezone: string;
 }
 
 interface ShopProfileErrors {
@@ -55,6 +65,8 @@ interface ShopProfileErrors {
   // both of them at once ("at least one"), so two separate slots would only
   // ever say the same thing twice.
   fulfillment?: string;
+  delivery_fee?: string;
+  timezone?: string;
 }
 
 const NO_IMAGE_CHANGE: ShopImageFieldValue = { file: null, remove: false };
@@ -78,7 +90,9 @@ function hasErrors(errors: ShopProfileErrors): boolean {
     Object.keys(errors.social).length > 0 ||
     errors.logo !== undefined ||
     errors.cover !== undefined ||
-    errors.fulfillment !== undefined
+    errors.fulfillment !== undefined ||
+    errors.delivery_fee !== undefined ||
+    errors.timezone !== undefined
   );
 }
 
@@ -101,6 +115,8 @@ function toFormState(tenant: Tenant): ShopProfileFormState {
       allows_delivery: tenant.allows_delivery,
       allows_pickup: tenant.allows_pickup,
     },
+    delivery_fee: tenant.delivery_fee,
+    timezone: tenant.timezone,
   };
 }
 
@@ -181,6 +197,18 @@ function validate(form: ShopProfileFormState): ShopProfileErrors {
     errors.fulfillment = "Offer delivery, pickup, or both — a shop can't turn off both.";
   }
 
+  // numeric|min:0 server-side. Blank is caught here rather than sent: unlike
+  // the text fields, "" can't clear this one — ConvertEmptyStringsToNull
+  // would make it null and fail `numeric` — so the fix has to be named.
+  const fee = form.delivery_fee.trim();
+  if (!fee) {
+    errors.delivery_fee = "Enter a delivery fee, or 0 if delivery is free.";
+  } else if (!Number.isFinite(Number(fee))) {
+    errors.delivery_fee = "Delivery fee must be a number.";
+  } else if (Number(fee) < 0) {
+    errors.delivery_fee = "Delivery fee can't be negative.";
+  }
+
   return errors;
 }
 
@@ -226,6 +254,16 @@ function toServerErrors(error: unknown): ShopProfileErrors {
     // accept either key: both describe the same pair of switches.
     if ((FULFILLMENT_OPTION_KEYS as readonly string[]).includes(key)) {
       errors.fulfillment = errors.fulfillment ?? message;
+      return;
+    }
+
+    if (key === "timezone") {
+      errors.timezone = errors.timezone ?? message;
+      return;
+    }
+
+    if (key === "delivery_fee") {
+      errors.delivery_fee = errors.delivery_fee ?? message;
       return;
     }
 
@@ -328,6 +366,16 @@ function buildPayload(
     }
   });
 
+  // Compared as numbers, not strings: the tenant resource returns "2000.00"
+  // and a shop that retypes "2000" hasn't changed anything, so a string diff
+  // would send a pointless write on every save.
+  const deliveryFee = form.delivery_fee.trim();
+  if (deliveryFee && Number(deliveryFee) !== Number(baseline.delivery_fee)) {
+    payload.delivery_fee = deliveryFee;
+  }
+
+  if (form.timezone !== baseline.timezone) payload.timezone = form.timezone;
+
   // Never both — a file plus its remove flag is a 422. ShopImageField makes
   // that unrepresentable in its own state; this keeps it that way here too.
   if (logo.file) payload.logo = logo.file;
@@ -386,9 +434,19 @@ export function ShopProfileForm({ tenant }: { tenant: Tenant }) {
     setForm((prev) => ({ ...prev, business_hours }));
   }
 
+  function updateTimezone(timezone: string) {
+    clearServerError();
+    setForm((prev) => ({ ...prev, timezone }));
+  }
+
   function updateFulfillment(fulfillment: FulfillmentOptionsState) {
     clearServerError();
     setForm((prev) => ({ ...prev, fulfillment }));
+  }
+
+  function updateDeliveryFee(delivery_fee: string) {
+    clearServerError();
+    setForm((prev) => ({ ...prev, delivery_fee }));
   }
 
   function updateSocialLink(platform: SocialPlatform, value: string) {
@@ -438,6 +496,7 @@ export function ShopProfileForm({ tenant }: { tenant: Tenant }) {
     logo: clientErrors.logo ?? serverErrors.logo,
     cover: clientErrors.cover ?? serverErrors.cover,
     fulfillment: clientErrors.fulfillment ?? serverErrors.fulfillment,
+    timezone: clientErrors.timezone ?? serverErrors.timezone,
   };
 
   const generalError = (() => {
@@ -493,6 +552,30 @@ export function ShopProfileForm({ tenant }: { tenant: Tenant }) {
         title="Business hours"
         description="Untick a day to mark it closed. Add a second row for a split shift."
       >
+        {/* Above the hours, not in "Shop details": these times are stored as
+            wall-clock strings with no zone attached, so this is the field
+            that says what they actually mean — to the storefront, and to any
+            customer reading them from somewhere else. */}
+        <div className="flex flex-col gap-1">
+          <Label htmlFor="shop-timezone" className="text-sm font-normal">
+            Timezone
+          </Label>
+          <TimezoneSelect
+            id="shop-timezone"
+            value={form.timezone}
+            onChange={updateTimezone}
+            invalid={Boolean(errors.timezone)}
+            triggerClassName="sm:w-72"
+          />
+          {errors.timezone ? (
+            <span className="text-sm text-destructive">{errors.timezone}</span>
+          ) : (
+            <span className={typography.muted}>
+              The hours below are {timezoneHoursLabel(form.timezone) ?? "in this zone"}.
+            </span>
+          )}
+        </div>
+
         <BusinessHoursEditor
           value={form.business_hours}
           onChange={updateBusinessHours}
@@ -509,6 +592,30 @@ export function ShopProfileForm({ tenant }: { tenant: Tenant }) {
           onChange={updateFulfillment}
           error={errors.fulfillment}
         />
+
+        {/* Under the switches, because it only means anything while
+            delivery is one of them — but still editable when delivery is
+            off, so a shop can set the fee before turning it back on. */}
+        <Label className="flex flex-col items-stretch gap-1">
+          <span className="text-sm font-normal">Delivery fee</span>
+          <Input
+            type="number"
+            step="0.01"
+            min="0"
+            inputMode="decimal"
+            value={form.delivery_fee}
+            onChange={(e) => updateDeliveryFee(e.target.value)}
+            aria-invalid={errors.delivery_fee ? true : undefined}
+            className={cn(controls.input, "sm:w-48")}
+          />
+          {errors.delivery_fee ? (
+            <span className="text-sm text-destructive">{errors.delivery_fee}</span>
+          ) : (
+            <span className={typography.muted}>
+              Charged on delivery orders only. Pickup is free. Set 0 to deliver for free.
+            </span>
+          )}
+        </Label>
       </SettingsSection>
 
       <SettingsSection
@@ -524,7 +631,7 @@ export function ShopProfileForm({ tenant }: { tenant: Tenant }) {
 
       <div className="flex flex-col gap-3">
         {generalError && <ErrorState message={generalError} />}
-        <Button type="submit" size="lg" disabled={updateTenant.isPending} className="w-fit">
+        <Button type="submit" disabled={updateTenant.isPending} className={cn(controls.button, "w-fit")}>
           {updateTenant.isPending ? "Saving..." : "Save changes"}
         </Button>
       </div>

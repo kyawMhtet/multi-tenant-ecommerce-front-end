@@ -21,8 +21,23 @@ export interface ProductVariant {
   buying_price: string;
   selling_price: string;
   track_stock: boolean;
+  // CAN BE NEGATIVE, and that is correct data, not a bug: a variant sold on
+  // preorder goes below zero, and "-7" means seven units already sold that
+  // the shop still owes customers. Never clamp it to 0 — see
+  // backorderedUnits() in lib/stock.ts, which is how it should be read.
   current_stock: string;
   low_stock_threshold: string | null;
+  // Whether this variant may be sold past zero. False by default; the two
+  // fields travel together, and the lead time is meaningless without it.
+  allow_preorder: boolean;
+  // 1–365, or null for "we don't know yet" — which is a real answer, not a
+  // missing one, so nothing anywhere defaults it to a number.
+  preorder_lead_time_days: number | null;
+  // Whether a preorder of this variant has to be paid up front. Only
+  // meaningful while allow_preorder is on, and it is NOT a pricing rule —
+  // it's what stops a customer picking cash-on-delivery for stock the shop
+  // hasn't bought yet.
+  preorder_requires_prepayment: boolean;
   is_active: boolean;
   // This variant's own photos, separate from the product's general gallery
   // (Product.images). Empty unless someone explicitly uploaded some for it —
@@ -70,6 +85,11 @@ export interface StoreProductPayload {
     selling_price: number;
     unit: string;
     current_stock: number;
+    // Nested under `variant[...]` on the wire, same as the rest of this
+    // block. Optional: the backend defaults allow_preorder to false.
+    allow_preorder?: boolean;
+    preorder_lead_time_days?: number | null;
+    preorder_requires_prepayment?: boolean;
   };
   // Max 10 files, each an actual image MIME type, max 2048KB — enforced by
   // StoreProductRequest; ProductImagePicker only warns about the size
@@ -92,6 +112,11 @@ export interface AddVariantPayload {
   buying_price: number;
   selling_price: number;
   current_stock?: number;
+  allow_preorder?: boolean;
+  // Integer 1–365 — anything outside that is a 422 on this key. null clears
+  // it back to "no estimate".
+  preorder_lead_time_days?: number | null;
+  preorder_requires_prepayment?: boolean;
   // Optional per-variant photos. Same limits as product images: up to 10
   // files, 2MB each, real image MIME types (enforced server-side).
   images?: File[];
@@ -119,6 +144,10 @@ export interface UpdateVariantPayload {
   selling_price?: number;
   low_stock_threshold?: number | null;
   track_stock?: boolean;
+  allow_preorder?: boolean;
+  // Integer 1–365 (422 on this key otherwise), or null for "no estimate".
+  preorder_lead_time_days?: number | null;
+  preorder_requires_prepayment?: boolean;
   is_active?: boolean;
   images?: File[];
   remove_image_ids?: number[];
@@ -196,6 +225,12 @@ export interface OrderItem {
   quantity: string;
   unit_price: string;
   line_total: string;
+  // Per line, because a mixed cart is normal: one item off the shelf, one
+  // on order. Only the preorder lines are marked, never the whole order's
+  // worth of them.
+  is_preorder: boolean;
+  // This line's own estimate, null when none was given.
+  preorder_lead_time_days: number | null;
 }
 
 // Mirrors App\Http\Resources\OrderResource. Note there is no nested
@@ -234,6 +269,55 @@ export interface Order {
   fulfillment_type: string | null;
   // Null for pickup orders, and for any order with no address recorded.
   delivery_address: DeliveryAddress | null;
+  // Why this order was cancelled. `cancellation_reason` is the stored code
+  // and `cancellation_reason_label` its display text — always render the
+  // label: the code set is backend-owned and grew twice during development,
+  // so a client-side code→label map would silently fall out of date.
+  cancellation_reason: string | null;
+  cancellation_reason_label: string | null;
+  cancelled_at: string | null;
+  // null means the *system* cancelled it (an expired payment window, or an
+  // unreachable gateway), not that a person did it anonymously — the two
+  // read very differently to staff and are shown differently.
+  cancelled_by_name: string | null;
+  // Not in the documented response shape, so treated as "may not be there"
+  // rather than assumed: it's accepted on POST /orders/{id}/cancel, and
+  // rendered only when the API does return it.
+  cancellation_note?: string | null;
+  // The shop's outstanding obligation: cancelling a *paid* order doesn't
+  // refund anything, because the money went customer → shop directly and
+  // never touched the platform. Nothing else in the app will remind them,
+  // which is why this gets a badge rather than a line of small print.
+  // On both the list and the detail endpoint. Load-bearing on the list: a
+  // preorder order sits at status "pending" for weeks, and without this it
+  // reads as one nobody has touched.
+  has_preorder_items: boolean;
+  // Detail endpoint only — absent from the list, hence optional. The
+  // LONGEST lead time across the order's preorder lines, counted from the
+  // order date. Null means no estimate was given, which is shown as nothing
+  // at all rather than a date this app made up.
+  preorder_ready_by?: string | null;
+  // On both the list and the detail endpoint, and deliberately NOT derived
+  // from status: a cash-on-delivery order is dispatched while still unpaid,
+  // and dispatching never moves the status at all.
+  is_dispatched: boolean;
+  // Detail endpoint only (the list omits them), hence optional throughout.
+  // delivery_provider_id goes null once a courier is deleted, which is
+  // exactly why the name is snapshotted separately — always DISPLAY the
+  // name, never look the id up to get one.
+  delivery_provider_id?: number | null;
+  delivery_provider_name?: string | null;
+  tracking_number?: string | null;
+  dispatched_at?: string | null;
+  dispatched_by_name?: string | null;
+  // ALREADY INCLUDED IN `total` — render it as its own line between
+  // subtotal and total, never add it to anything.
+  delivery_fee?: string;
+  refund_required: boolean;
+  // Set by POST /orders/{id}/refund — the shop confirming they sent the
+  // money back, not a gateway event.
+  refunded_at: string | null;
+  refund_note: string | null;
   created_at: string;
   items: OrderItem[];
   // Only on GET /orders/{id} — the list endpoint omits it, hence optional.
@@ -270,7 +354,20 @@ export interface StorefrontProductVariant {
   attributes: Record<string, string> | null;
   unit: string | null;
   selling_price: string;
-  stock_status: "in_stock" | "low_stock" | "out_of_stock";
+  // "preorder" is out of stock but still orderable, with a wait — it is a
+  // BUYABLE state, unlike out_of_stock. Anything gating a buy action must
+  // test for out_of_stock specifically rather than "not in_stock".
+  stock_status: "in_stock" | "low_stock" | "out_of_stock" | "preorder";
+  // Null unless stock_status is "preorder" — and null even then when the
+  // shop hasn't committed to a lead time, which means "ships when stock
+  // arrives", never an invented date.
+  preorder_lead_time_days: number | null;
+  // Whether a preorder of this variant has to be paid up front. Null unless
+  // stock_status is "preorder", same as the lead time — so there is no way
+  // to render a prepayment demand against something on the shelf. It is
+  // what takes cash-on-delivery off the checkout's payment list; see
+  // cartRequiresPrepayment() in lib/cart.ts.
+  preorder_requires_prepayment: boolean | null;
   // This variant's own photos. Empty for most variants (size-only, no
   // visual difference) — the product page falls back to StorefrontProduct.
   // images when this is empty, and shows these instead when it isn't.
@@ -348,7 +445,22 @@ export interface RegisterPayload {
   // Min 8 characters. No password_confirmation — the endpoint doesn't
   // accept one, so the form doesn't collect one either.
   password: string;
+  // Defaults to MMK server-side if omitted, which is exactly the trap the
+  // signup form exists to avoid: a Thai shop that never sees the field
+  // silently trades in Kyat forever. Permanent once set — PATCH /tenant
+  // ignores it, because money columns carry no currency tag and changing it
+  // would reinterpret every order already recorded.
+  currency?: ShopCurrency;
+  // IANA zone, e.g. "Asia/Bangkok". Defaults to Asia/Yangon server-side.
+  // Editable later in settings, unlike currency.
+  timezone?: string;
 }
+
+// The currencies the backend accepts at signup. A closed union because this
+// app decides what it submits — same reasoning as FulfillmentType.
+export const SHOP_CURRENCIES = ["MMK", "THB", "USD"] as const;
+
+export type ShopCurrency = (typeof SHOP_CURRENCIES)[number];
 
 // 201 with the exact same shape as LoginResponse (token alongside `data`,
 // not nested inside it), so a successful signup logs the owner in outright —
@@ -423,6 +535,12 @@ export interface Tenant {
   // turning the last one off, so checkout can always offer at least one.
   allows_delivery: boolean;
   allows_pickup: boolean;
+  // Flat fee added to delivery orders; pickup is always free. A money
+  // string like every other, so "0.00" (not 0) is what "no fee" looks like.
+  delivery_fee: string;
+  // IANA zone. business_hours are wall-clock times with no zone of their
+  // own, so this is what they actually mean — render the two together.
+  timezone: string;
   /**
    * @deprecated Falls back to the owner's signup phone. Prefer
    * business_phone, which is the field the settings screen actually edits.
@@ -459,6 +577,14 @@ export interface UpdateTenantPayload {
   // across separate requests, not just within one payload.
   allows_delivery?: boolean;
   allows_pickup?: boolean;
+  // numeric, min 0. Sent as a string because this payload goes out as
+  // multipart (see lib/api/tenant.ts), where every value is a string on the
+  // wire anyway — "0" clears it back to free delivery, and unlike the text
+  // fields "" is NOT how you do that (ConvertEmptyStringsToNull would make
+  // it null, which fails the numeric rule).
+  delivery_fee?: string;
+  // Editable, unlike currency, which this endpoint ignores outright.
+  timezone?: string;
 }
 
 // The public subset of Tenant, from GET /api/v1/public/shop — no id, no
@@ -479,6 +605,16 @@ export interface PublicShop {
   // defensive case in the UI rather than a state the shop can reach.
   allows_delivery: boolean;
   allows_pickup: boolean;
+  // What this shop charges to deliver one order, as a 2-decimal string like
+  // every other money field. Flat per order, not per line. It applies to
+  // delivery only — the server forces it to 0 on a pickup order — and it is
+  // computed server-side from this value, never sent up with the order (see
+  // StoreOnlineOrderPayload, which has no delivery_fee or total for exactly
+  // that reason). Shown before checkout via deliveryFeeFor() in lib/cart.ts.
+  delivery_fee: string;
+  // The zone business_hours are expressed in — a customer in another zone
+  // reading "9:00 – 18:00" needs to be told whose clock that is.
+  timezone: string;
 }
 
 // Mirrors the `recent_orders` shape inside DashboardSummaryResource — a
@@ -504,16 +640,48 @@ export interface DashboardLowStockVariant {
   low_stock_threshold: string;
 }
 
+// Mirrors the `preorder_backlog_variants` shape inside
+// DashboardSummaryResource. units_owed is positive — it's the absolute
+// value of a negative current_stock, i.e. what customers are waiting for.
+// Typed as a plain number to match the counts alongside it, but read
+// through Number() at the render site anyway, in case it arrives as a
+// decimal-cast string like the low-stock rows' current_stock does.
+export interface DashboardPreorderBacklogVariant {
+  product_id: number;
+  product_name: string;
+  variant_name: string | null;
+  units_owed: number;
+  preorder_lead_time_days: number | null;
+}
+
 // Mirrors App\Http\Resources\DashboardSummaryResource. today_sales_total
 // and the *_count fields come straight off DashboardService::getSummary()
 // as plain PHP int/float, not decimal-cast Eloquent attributes — unlike
 // every money string elsewhere in this file, these serialize as JSON
 // numbers, not strings.
 export interface DashboardSummary {
+  // GOODS sales only — delivery fees moved out of this figure and into
+  // today_delivery_fees below. Same reasoning as SalesProfitReport.revenue.
   today_sales_total: number;
+  // Today's delivery fees, shown beside the sales figure rather than folded
+  // into it, so a shop reconciling against the till can see both halves of
+  // what was actually taken.
+  today_delivery_fees: number;
   today_order_count: number;
   low_stock_variant_count: number;
   active_product_count: number;
+  // Paid orders that were cancelled and not yet refunded — money the shop
+  // owes back and has no other way to see. Same plain-number convention as
+  // the fields above, including the total.
+  refunds_owed_count: number;
+  refunds_owed_total: number;
+  // Variants sold past zero, and the units owed on them. Deliberately
+  // separate from low_stock_*, which now EXCLUDES negative-stock variants
+  // server-side — the two never count the same variant, because they call
+  // for opposite actions (chase the supplier vs. reorder soon).
+  preorder_backlog_variant_count: number;
+  preorder_backlog_units: number;
+  preorder_backlog_variants: DashboardPreorderBacklogVariant[];
   recent_orders: DashboardRecentOrder[];
   low_stock_variants: DashboardLowStockVariant[];
 }
@@ -540,14 +708,61 @@ export interface SalesProfitReportDay {
 export interface SalesProfitReport {
   date_from: string;
   date_to: string;
+  // GOODS revenue only — delivery fees are NOT in here (they were, before
+  // the backend split them out). profit, margin_percentage and
+  // average_order_value all follow from this figure, so they're all
+  // goods-only too. Money actually banked is revenue + delivery_fees_collected,
+  // which is why the UI labels this "Sales" and shows the fee beside it:
+  // most of that fee goes straight to a courier, and nothing records what
+  // the courier was paid, so counting it as revenue would overstate profit
+  // on every delivered order.
   revenue: string;
   cost: string;
   profit: string;
   margin_percentage: number | null;
   order_count: number;
   average_order_value: string | null;
+  // Charged to customers for delivery over the range. Kept out of revenue
+  // and out of profit — see the note on `revenue`.
+  delivery_fees_collected: string;
   daily: SalesProfitReportDay[];
 }
+
+// Matches POST /api/v1/orders/{order}/dispatch. Does not change the
+// order's status — dispatching is a fulfillment fact, not a payment or
+// lifecycle one.
+//
+// tracking_number is optional on purpose rather than by oversight: a shop
+// delivering with its own rider has no number to type, and requiring one
+// would push staff into inventing them.
+export interface DispatchOrderPayload {
+  delivery_provider_id: number;
+  tracking_number?: string;
+}
+
+// Mirrors the delivery-provider resource — the shop's own list of couriers.
+// Names are unique per shop (a duplicate is a 422 on `name`). Deleting one
+// is safe: past orders keep the courier name they were dispatched with,
+// because Order.delivery_provider_name is a snapshot, not a join.
+export interface DeliveryProvider {
+  id: number;
+  name: string;
+  phone: string | null;
+  note: string | null;
+  sort_order: number;
+}
+
+// POST /api/v1/delivery-providers.
+export interface StoreDeliveryProviderPayload {
+  name: string;
+  phone?: string;
+  note?: string;
+  sort_order?: number;
+}
+
+// PATCH /api/v1/delivery-providers/{id} — partial, same convention as the
+// tenant endpoint: omit what didn't change.
+export type UpdateDeliveryProviderPayload = Partial<StoreDeliveryProviderPayload>;
 
 // Matches SalesProfitReportRequest::rules() — GET /api/v1/reports/sales-profit.
 // Both independently optional; omitting both lets the backend apply its
@@ -571,6 +786,85 @@ export interface NewOnlineOrderNotificationData {
   currency: string | null;
   customer_name: string;
   created_at: string;
+}
+
+// Shape of `data` on a "subscription_payment_reviewed" notification —
+// verified against App\Notifications\SubscriptionPaymentReviewed::toArray().
+// Sent to every user of a shop when platform staff approve OR reject its bank
+// transfer, and it is the ONLY thing that tells them the outcome: the manual
+// rail has no webhook, so without this a shop either notices its plan changed
+// or doesn't.
+//
+// amount is a plain number here — the notification casts it with (float) when
+// building its stored payload — NOT the decimal-cast string that
+// SubscriptionInvoice.amount is. Don't reuse that type for this.
+export interface SubscriptionPaymentReviewedNotificationData {
+  invoice_id: number;
+  // "SUB-41" — the same string the shop put in the transfer note, so a
+  // support conversation has one shared reference.
+  reference: string;
+  // The outcome. false means rejected, and the invoice stays UNPAID and
+  // payable rather than being voided — transferring again and re-uploading
+  // against the same invoice is the intended recovery.
+  approved: boolean;
+  plan: string;
+  plan_label: string;
+  amount: number;
+  // The shop's billing currency, which is not necessarily the currency it
+  // trades in — a USD shop has no billing entry and is billed in the platform
+  // default. So this is the only correct source here; the tenant's own
+  // currency would be wrong.
+  currency: string;
+  period_end: string | null;
+  // The reviewer's reason. Required server-side on a rejection (5–500 chars)
+  // and optional on an approval, so it is nullable in general but effectively
+  // always present on the case that needs it.
+  note: string | null;
+}
+
+// Shape of `data` on a "subscription_payment_received" notification —
+// verified against App\Notifications\SubscriptionPaymentReceived::toArray().
+//
+// A CARD payment that succeeded. Deliberately not "reviewed": no human ruled
+// on this one, the gateway confirmed it, which is why it carries no `approved`
+// flag and no reviewer note. Same (float) cast on amount as the reviewed
+// payload — a JSON number, not SubscriptionInvoice.amount's decimal string.
+export interface SubscriptionPaymentReceivedNotificationData {
+  invoice_id: number;
+  reference: string;
+  plan: string;
+  plan_label: string;
+  amount: number;
+  // The shop's BILLING currency, which is not necessarily what it sells in.
+  currency: string;
+  period_end: string | null;
+}
+
+// Shape of `data` on a "subscription_payment_failed" notification —
+// verified against App\Notifications\SubscriptionPaymentFailed::toArray().
+//
+// A card was declined. Carries no money: the amount that failed to be taken is
+// not something the shop can act on, whereas the DATE is — access is not cut
+// on a decline, the shop keeps working through grace, and grace_ends_at is
+// when that stops.
+export interface SubscriptionPaymentFailedNotificationData {
+  plan: string;
+  plan_label: string;
+  // Derived server-side from Subscription::graceEndsAt(), never stored — the
+  // window differs by rail. Null when there is no live entitlement to run out.
+  grace_ends_at: string | null;
+}
+
+// Shape of `data` on a "subscription_cancelled" notification —
+// verified against App\Notifications\SubscriptionCancelled::toArray().
+//
+// Sent whether the shop cancelled or Stripe confirmed it. access_ends_at is
+// the important field and the reason this isn't a bad-news notification: the
+// shop keeps everything it has paid for until that date.
+export interface SubscriptionCancelledNotificationData {
+  plan: string;
+  plan_label: string;
+  access_ends_at: string | null;
 }
 
 // type is deliberately kept as an open string, not a union — more
@@ -709,9 +1003,47 @@ export interface OnlineOrderResult {
 // PATCH /api/v1/orders/{id} — the shop confirming an order. Sending
 // payment_status: "paid" also settles the order's payment record
 // server-side, so there's no second call to reconcile the two.
+/**
+ * PATCH /api/v1/orders/{id} — the shop moving an order forward.
+ *
+ * Deliberately NOT the place to cancel or refund: status "cancelled" and
+ * payment_status "refunded" are both 422s here now. Cancelling needs a
+ * reason (POST /orders/{id}/cancel) and a refund is a separate act the shop
+ * performs with its own money (POST /orders/{id}/refund), so neither can be
+ * expressed as a plain field update any more.
+ */
 export interface UpdateOrderPayload {
   status?: string;
   payment_status?: string;
+}
+
+// One option in the cancellation picker, from GET
+// /api/v1/orders/cancellation-reasons. Fetched, never hardcoded — the list
+// is backend-owned and grows.
+export interface CancellationReason {
+  code: string;
+  label: string;
+}
+
+// POST /api/v1/orders/{id}/cancel. The reason is required; the note is
+// optional except for the "other" code, where omitting it is a 422 on
+// cancellation_note.
+export interface CancelOrderPayload {
+  cancellation_reason: string;
+  cancellation_note?: string;
+}
+
+// The code whose label is free text, and the one the backend requires a
+// note alongside. Compared against the fetched list rather than standing in
+// for it.
+export const OTHER_CANCELLATION_REASON = "other";
+
+// POST /api/v1/orders/{id}/refund — "I've sent the money back". The note is
+// optional but worth prompting for: it's the reference the shop will want
+// when the customer asks about it weeks later. A 422 comes back if the
+// order was never paid, since there's nothing to give back.
+export interface RefundOrderPayload {
+  refund_note?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -750,4 +1082,239 @@ export interface DeliveryAddressInput {
   township?: string;
   city?: string;
   note?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Platform billing (the shop paying US for the SaaS)
+// ---------------------------------------------------------------------------
+//
+// Not to be confused with the Payments section above, which is money flowing
+// customer -> shop. This is money flowing shop -> platform. Same vendor
+// (Stripe) on one of the rails, opposite direction, and nothing shared —
+// mirroring the backend's own split between config/payments.php and
+// config/billing.php.
+
+// A shop is billed in ITS OWN currency, into an account in its own country —
+// a Yangon shop cannot easily wire Baht to a Thai bank. Only these two have
+// billing entries; a shop on USD falls back to the platform default
+// server-side, which is why this is what the API answers with rather than
+// tenants.currency.
+export type BillingCurrency = "THB" | "MMK";
+
+// The rails a subscription can be paid on. `null` on a trial, which has no
+// payment method yet — saying "stripe" there would assert a card that may
+// never exist. Card is structurally absent for MMK (Stripe doesn't support
+// the currency), so a rail is never assumed, only read from BillingPlan.rails.
+export type BillingRail = "stripe" | "manual";
+
+// Mirrors App\Http\Resources\SubscriptionResource.
+//
+// Every derived answer (is_read_only, is_in_grace, grace_ends_at,
+// access_ends_at) is computed SERVER-SIDE and published here on purpose.
+// Never recompute one of them from the dates in this object: two
+// implementations of the same rule is how a client ends up showing "active"
+// over an account the API is already refusing.
+export interface Subscription {
+  // The plan actually enforced. A lapsed shop is NOT downgraded — it stays on
+  // the plan it bought and goes read-only instead, so a lapsed Pro shop
+  // reports "pro" here and must never be rendered as a Starter shop.
+  plan: string;
+  plan_label: string;
+  // A plan change already agreed but not yet due — a DOWNGRADE bought while
+  // paid time remained. The shop keeps `plan` above until this date, then
+  // drops to this one.
+  //
+  // ABSENT, not null, unless a change is scheduled: the Resource wraps all
+  // three in $this->when(), so `"pending_plan" in subscription` is a real
+  // check and `pending_plan === null` would never be true. Optional here for
+  // exactly that reason.
+  //
+  // Only the manual rail ever schedules one. A card payment applies its plan
+  // the moment the webhook lands and clears any pending change, since Stripe
+  // plan moves go through cancel-then-resubscribe.
+  pending_plan?: string;
+  pending_plan_label?: string;
+  pending_plan_starts_at?: string;
+  // "trialing" | "active" | "cancelled" today, but read as an open string:
+  // it's a plain column server-side, same as Order.status.
+  status: string;
+  rail: BillingRail | null;
+  is_on_trial: boolean;
+  trial_ends_at: string | null;
+  current_period_ends_at: string | null;
+  // When paid (or trial) access runs out, ignoring grace. Null means no live
+  // entitlement at all.
+  access_ends_at: string | null;
+  // Past the paid period but STILL WORKING — the window in which the shop can
+  // fix it before anything stops. This is the one to warn loudly about; by
+  // the time is_read_only is true it's too late to be a warning.
+  is_in_grace: boolean;
+  grace_ends_at: string | null;
+  // Writes are already blocked. Reads, the storefront, the POS and order
+  // fulfilment all keep working — see RequireWriteAccess on the Laravel side
+  // for exactly what is and isn't gated.
+  is_read_only: boolean;
+  cancel_at_period_end: boolean;
+  cancelled_at: string | null;
+}
+
+// The countable ceilings for a plan. `null` means unlimited, never 0 — zero
+// is a real answer to "how many may you create" and stays expressible.
+export interface PlanLimits {
+  products: number | null;
+  staff: number | null;
+}
+
+// Mirrors App\Http\Resources\PlanResource. `features` are PlanFeature enum
+// values ("card_payments", "profit_reports", "preorder"); read as an open
+// string list so a new backend feature renders rather than crashing.
+export interface BillingPlan {
+  code: string;
+  label: string;
+  // A float in major units server-side (750 = 750 THB), not a decimal-cast
+  // string like every other money field in this file — it comes from config,
+  // not a database column.
+  amount: number;
+  currency: string;
+  limits: PlanLimits;
+  features: string[];
+  // Which rails this deployment can actually offer for THIS plan in THIS
+  // currency. Render only what's in here — a hardcoded card button is exactly
+  // the dead button this list exists to prevent, and it is permanently empty
+  // of "stripe" for MMK shops.
+  rails: BillingRail[];
+  is_current: boolean;
+}
+
+// GET /api/v1/billing — everything the billing screen needs in one call.
+export interface BillingOverview {
+  currency: BillingCurrency;
+  // Null for a tenant with no subscription row at all. Not a state
+  // registration can produce (AuthService starts a trial in the same
+  // transaction), but the API types it as nullable, so the UI handles it
+  // rather than crashing on data created around the app.
+  subscription: Subscription | null;
+  plans: BillingPlan[];
+}
+
+// One billing period's charge — history, not state. Subscription answers
+// "what can this shop do today"; this answers "did they pay for March, how,
+// and who said so".
+export interface SubscriptionInvoice {
+  id: number;
+  // What the shop puts in the transfer note ("SUB-41"), and what a reviewer
+  // matches against the bank statement.
+  reference: string;
+  plan: string;
+  plan_label: string;
+  // decimal:2-cast, so a string here, unlike BillingPlan.amount.
+  amount: string;
+  currency: string;
+  rail: BillingRail | null;
+  // "pending" | "paid" | "failed" | "void". ONLY "paid" means paid — an
+  // uploaded proof_url alongside "pending" is a claim, not a settlement.
+  //
+  // "void" is superseded: the shop asked for one plan, then asked for a
+  // different one before paying, so the earlier invoice was voided rather
+  // than deleted (staff must not see two invoices with one screenshot between
+  // them). Platform staff changing a shop's billing currency does it too. A
+  // void invoice can never be paid or reused — scopeUnpaid() excludes it —
+  // but it is still real history, so it stays visible.
+  status: string;
+  period_start: string | null;
+  period_end: string | null;
+  paid_at: string | null;
+  // The shop's own uploaded screenshot, echoed back so they can see it
+  // arrived. Its presence says nothing about whether the money did.
+  proof_url: string | null;
+  reviewed_at: string | null;
+  created_at: string;
+}
+
+// POST /api/v1/billing/subscribe. Only `rail`s listed on the chosen plan are
+// accepted; there is no amount field, and never will be — what a plan costs
+// is resolved server-side from config.
+export interface StartSubscriptionPayload {
+  plan: string;
+  rail: BillingRail;
+}
+
+// The platform's own receiving account, shown to a shop that picked transfer.
+// Every field is nullable because it's env-held deployment config.
+export interface TransferInstructions {
+  bank_name: string | null;
+  account_name: string | null;
+  account_number: string | null;
+  notes: string | null;
+  amount: string | null;
+  currency: string | null;
+  reference: string | null;
+}
+
+// What the admin app must do next — NOT a confirmation that anything was
+// paid. A redirect can be closed and a transfer may never be sent; the plan
+// moves only when money is CONFIRMED (by webhook on the card rail, by a human
+// on the manual one). Nothing rendered from this may say "you're now on Pro".
+export interface BillingInitiation {
+  type: "redirect" | "transfer";
+  // Set for "redirect" — send the browser here (Stripe Checkout).
+  url: string | null;
+  // Set for "transfer".
+  instructions: TransferInstructions | null;
+  invoice: SubscriptionInvoice | null;
+}
+
+// ---------------------------------------------------------------------------
+// Platform admin (OUR staff, not a shop's)
+// ---------------------------------------------------------------------------
+
+// PlatformAdmin rows — a different table from `users`, with no tenant_id and
+// no presence in it. Their tokens are not interchangeable with a shop's; see
+// lib/platform-auth.ts for why that matters on this side.
+export interface PlatformAdmin {
+  id: number;
+  name: string;
+  email: string;
+  // Only returned by GET /platform/me, not by the login response.
+  last_login_at?: string | null;
+}
+
+// POST /api/v1/platform/login. Same envelope quirk as the shop's
+// LoginResponse in reverse: here the token sits INSIDE `data`, alongside the
+// admin — so it's `data.token`, not a sibling of `data`.
+export interface PlatformLoginResponse {
+  data: {
+    admin: PlatformAdmin;
+    token: string;
+  };
+}
+
+// Mirrors App\Http\Resources\PlatformInvoiceResource — deliberately a
+// different resource from SubscriptionInvoice above rather than a flag on it,
+// because this one NAMES THE SHOP and must never appear in a response to a
+// shop.
+export interface PlatformInvoice {
+  id: number;
+  reference: string;
+  shop: {
+    id: number | null;
+    name: string | null;
+    slug: string | null;
+    owner_email: string | null;
+    owner_phone: string | null;
+  };
+  plan: string;
+  plan_label: string;
+  amount: string;
+  currency: string;
+  status: string;
+  period_start: string | null;
+  period_end: string | null;
+  // Null means the shop asked for bank details and never uploaded anything.
+  // Worth chasing, not worth hiding — the queue shows these, ordered after
+  // the ones that do have a screenshot.
+  proof_url: string | null;
+  reviewed_at: string | null;
+  note: string | null;
+  created_at: string;
 }

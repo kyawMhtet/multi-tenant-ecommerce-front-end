@@ -1,5 +1,6 @@
 import { OrderItemLabel } from "@/components/admin/OrderItemLabel";
 import { formatCurrency, formatQuantity } from "@/lib/currency";
+import { hasDeliveryLine } from "@/lib/order-items";
 import { initials } from "@/lib/initials";
 import type { Order } from "@/lib/types";
 
@@ -111,6 +112,14 @@ export function OrderReceiptPrint({ order, shopName }: { order: Order; shopName?
         )}
         {Number(order.tax_amount) > 0 && (
           <SummaryRow label="Tax" value={formatCurrency(order.tax_amount, order.currency)} />
+        )}
+        {/* Without this the customer's copy shows a subtotal and a total
+            that don't reconcile — the fee is inside the total already. */}
+        {hasDeliveryLine(order) && (
+          <SummaryRow
+            label="Delivery"
+            value={formatCurrency(order.delivery_fee ?? "0", order.currency)}
+          />
         )}
         <div className="mt-1 flex items-baseline justify-between gap-6 border-t pt-3">
           <span className="text-[0.7rem] font-medium tracking-[0.2em] text-muted-foreground uppercase">

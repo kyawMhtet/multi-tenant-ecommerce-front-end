@@ -5,6 +5,7 @@ import { ImagePlus, RotateCcwIcon, Trash2Icon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { controls } from "@/lib/design-tokens";
 
 // UpdateTenantRequest rules both files as 'image', 'max:2048' — kilobytes,
 // so 2MB. Same non-blocking treatment as ProductImagePicker: the server is
@@ -136,8 +137,8 @@ export function ShopImageField({
             <Button
               type="button"
               variant="outline"
-              size="sm"
               onClick={() => inputRef.current?.click()}
+              className={controls.buttonSm}
             >
               {shownUrl ? "Replace" : "Choose image"}
             </Button>
@@ -146,13 +147,13 @@ export function ShopImageField({
                 remove while there's a stored image and nothing staged.
                 Never a "remove" next to a chosen file. */}
             {isStaged ? (
-              <Button type="button" variant="ghost" size="sm" onClick={handleUndo}>
+              <Button type="button" variant="ghost" onClick={handleUndo} className={controls.buttonSm}>
                 <RotateCcwIcon />
                 Undo
               </Button>
             ) : (
               currentUrl && (
-                <Button type="button" variant="ghost" size="sm" onClick={handleRemove}>
+                <Button type="button" variant="ghost" onClick={handleRemove} className={controls.buttonSm}>
                   <Trash2Icon />
                   Remove
                 </Button>

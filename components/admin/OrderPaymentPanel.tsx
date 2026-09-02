@@ -6,12 +6,12 @@ import { ApiError } from "@/lib/api-client";
 import { usePaymentMethods } from "@/lib/hooks/usePaymentMethods";
 import { useUpdateOrder } from "@/lib/hooks/useUpdateOrder";
 import { ErrorState } from "@/components/shared/ErrorState";
-import { ImageLightbox } from "@/components/admin/ImageLightbox";
+import { ImageLightbox } from "@/components/shared/ImageLightbox";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { formatCurrency } from "@/lib/currency";
-import { orderStatusClassName, typography } from "@/lib/design-tokens";
+import { controls, orderStatusClassName, typography } from "@/lib/design-tokens";
 import type { Order } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -47,7 +47,12 @@ export function OrderPaymentPanel({ order }: { order: Order }) {
     : null;
 
   const isPaid = order.payment_status === "paid";
-  const canAccept = !isPaid && !UNACCEPTABLE_STATUSES.has(order.status.toLowerCase());
+  // cancelled_at is checked alongside the status string because it's the
+  // fact rather than a rendering of it — accepting an order that's already
+  // been cancelled (and may owe the customer a refund) must not be one
+  // click away because a status came back worded differently.
+  const canAccept =
+    !isPaid && !order.cancelled_at && !UNACCEPTABLE_STATUSES.has(order.status.toLowerCase());
 
   async function handleAccept() {
     updateOrder.reset();
@@ -130,7 +135,7 @@ export function OrderPaymentPanel({ order }: { order: Order }) {
           <div className="flex flex-col gap-2">
             <Button
               type="button"
-              className="w-fit"
+              className={cn(controls.button, "w-fit")}
               disabled={updateOrder.isPending}
               onClick={handleAccept}
             >

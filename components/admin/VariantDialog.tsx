@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { toast } from "sonner";
-import { ApiError } from "@/lib/api-client";
 import { useCreateVariant } from "@/lib/hooks/useCreateVariant";
 import {
   Dialog,
@@ -11,10 +10,16 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { controls } from "@/lib/design-tokens";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ErrorState } from "@/components/shared/ErrorState";
+import { ApiErrorState } from "@/components/shared/ApiErrorState";
 import { ProductImagePicker } from "@/components/admin/ProductImagePicker";
+import {
+  PreorderFields,
+  preorderLeadTimeValue,
+  validatePreorderLeadTime,
+} from "@/components/admin/PreorderFields";
 
 interface VariantFormState {
   variantName: string;
@@ -23,6 +28,9 @@ interface VariantFormState {
   sellingPrice: string;
   unit: string;
   stock: string;
+  allowPreorder: boolean;
+  preorderLeadTimeDays: string;
+  preorderRequiresPrepayment: boolean;
 }
 
 const initialVariantForm: VariantFormState = {
@@ -32,6 +40,10 @@ const initialVariantForm: VariantFormState = {
   sellingPrice: "",
   unit: "",
   stock: "",
+  allowPreorder: false,
+  // "" is "we don't know yet" — never seeded with a number.
+  preorderLeadTimeDays: "",
+  preorderRequiresPrepayment: false,
 };
 
 function validateVariant(
@@ -57,6 +69,9 @@ function validateVariant(
   if (!form.stock.trim() || !Number.isFinite(stock) || stock < 0) {
     errors.stock = "Stock must be zero or a positive number.";
   }
+
+  const leadTimeError = validatePreorderLeadTime(form.preorderLeadTimeDays);
+  if (leadTimeError) errors.preorderLeadTimeDays = leadTimeError;
 
   return errors;
 }
@@ -100,26 +115,24 @@ export function VariantDialog({ productId }: { productId: string }) {
           buying_price: Number(form.buyingPrice),
           selling_price: Number(form.sellingPrice),
           current_stock: Number(form.stock),
+          allow_preorder: form.allowPreorder,
+          preorder_lead_time_days: preorderLeadTimeValue(form.preorderLeadTimeDays),
+          preorder_requires_prepayment: form.preorderRequiresPrepayment,
           images: pendingImages.length > 0 ? pendingImages : undefined,
         },
       });
       toast.success("Variant added.");
       handleOpenChange(false);
     } catch {
-      // Surfaced via submitError below — a duplicate sku (422) is the
+      // Surfaced via the ApiErrorState below — a duplicate sku (422) is the
       // expected failure case here, not a bug to handle further.
     }
   }
 
-  const submitError = createVariant.error
-    ? createVariant.error instanceof ApiError
-      ? createVariant.error.message
-      : "Something went wrong. Please try again."
-    : null;
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogTrigger render={<Button type="button" variant="outline" size="sm" />}>
+      <DialogTrigger render={<Button type="button" variant="outline" className={controls.buttonSm} />}>
         Add variant
       </DialogTrigger>
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-xl">
@@ -135,6 +148,7 @@ export function VariantDialog({ productId }: { productId: string }) {
               placeholder="Red / Large"
               value={form.variantName}
               onChange={(e) => updateField("variantName", e.target.value)}
+              className={controls.input}
             />
             {errors.variantName && (
               <span className="text-sm text-destructive">{errors.variantName}</span>
@@ -145,8 +159,10 @@ export function VariantDialog({ productId }: { productId: string }) {
             <span className="text-sm">SKU</span>
             <Input
               type="text"
+              placeholder="TSHIRT-RED-L"
               value={form.sku}
               onChange={(e) => updateField("sku", e.target.value)}
+              className={controls.input}
             />
             {errors.sku && <span className="text-sm text-destructive">{errors.sku}</span>}
           </Label>
@@ -158,8 +174,10 @@ export function VariantDialog({ productId }: { productId: string }) {
                 type="number"
                 step="0.01"
                 min="0"
+                placeholder="What you paid"
                 value={form.buyingPrice}
                 onChange={(e) => updateField("buyingPrice", e.target.value)}
+                className={controls.input}
               />
               {errors.buyingPrice && (
                 <span className="text-sm text-destructive">{errors.buyingPrice}</span>
@@ -172,8 +190,10 @@ export function VariantDialog({ productId }: { productId: string }) {
                 type="number"
                 step="0.01"
                 min="0"
+                placeholder="What you charge"
                 value={form.sellingPrice}
                 onChange={(e) => updateField("sellingPrice", e.target.value)}
+                className={controls.input}
               />
               {errors.sellingPrice && (
                 <span className="text-sm text-destructive">{errors.sellingPrice}</span>
@@ -189,6 +209,7 @@ export function VariantDialog({ productId }: { productId: string }) {
                 placeholder="pcs, kg, box..."
                 value={form.unit}
                 onChange={(e) => updateField("unit", e.target.value)}
+                className={controls.input}
               />
               {errors.unit && <span className="text-sm text-destructive">{errors.unit}</span>}
             </Label>
@@ -199,12 +220,26 @@ export function VariantDialog({ productId }: { productId: string }) {
                 type="number"
                 step="1"
                 min="0"
+                placeholder="Units in hand"
                 value={form.stock}
                 onChange={(e) => updateField("stock", e.target.value)}
+                className={controls.input}
               />
               {errors.stock && <span className="text-sm text-destructive">{errors.stock}</span>}
             </Label>
           </div>
+
+          <PreorderFields
+            allowPreorder={form.allowPreorder}
+            leadTimeDays={form.preorderLeadTimeDays}
+            requiresPrepayment={form.preorderRequiresPrepayment}
+            onAllowPreorderChange={(value) => updateField("allowPreorder", value)}
+            onLeadTimeChange={(value) => updateField("preorderLeadTimeDays", value)}
+            onRequiresPrepaymentChange={(value) =>
+              updateField("preorderRequiresPrepayment", value)
+            }
+            error={errors.preorderLeadTimeDays}
+          />
 
           <ProductImagePicker
             title="Variant photos"
@@ -213,13 +248,20 @@ export function VariantDialog({ productId }: { productId: string }) {
             onPendingFilesChange={setPendingImages}
           />
 
-          {submitError && <ErrorState message={submitError} />}
+          {/* Adding a variant is a catalogue WRITE, so it 402s for a
+              read-only shop and for a plan whose preorder feature this
+              variant is trying to use — ApiErrorState turns either into an
+              upgrade prompt instead of a flat sentence. */}
+          <ApiErrorState
+            error={createVariant.error}
+            fallback="Something went wrong. Please try again."
+          />
 
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => handleOpenChange(false)}>
+            <Button type="button" variant="outline" onClick={() => handleOpenChange(false)} className={controls.button}>
               Cancel
             </Button>
-            <Button type="submit" disabled={createVariant.isPending}>
+            <Button type="submit" disabled={createVariant.isPending} className={controls.button}>
               {createVariant.isPending ? "Adding..." : "Add variant"}
             </Button>
           </DialogFooter>

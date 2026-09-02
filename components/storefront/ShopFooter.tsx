@@ -19,6 +19,7 @@ import {
   telHref,
   type SocialLinkKey,
 } from "@/lib/shop-profile";
+import { timezoneHoursLabel } from "@/lib/timezones";
 import type { PublicShop } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -52,6 +53,12 @@ export function ShopFooter({ shop }: { shop: PublicShop }) {
   // small text in a footer, and mostly repetition.
   const hourGroups = groupBusinessHours(shop.business_hours);
   const hasHours = hourGroups.some((group) => !group.closed);
+  // Opening times are wall-clock strings with no zone of their own, so
+  // "9:00 AM – 6:00 PM" is only true where the shop is. Said outright rather
+  // than converted: there's no date to convert against, and a customer
+  // reading this from another country would otherwise plan around their own
+  // clock.
+  const hoursTimezone = timezoneHoursLabel(shop.timezone);
   const socialLinks = buildSocialLinks(shop.social_links);
   const hasContact = Boolean(shop.business_phone || shop.business_email);
   const year = new Date().getFullYear();
@@ -142,6 +149,9 @@ export function ShopFooter({ shop }: { shop: PublicShop }) {
                     </div>
                   ))}
                 </dl>
+                {hoursTimezone && (
+                  <p className="text-xs text-white/30">All times {hoursTimezone}</p>
+                )}
               </div>
             )}
 

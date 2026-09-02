@@ -10,27 +10,13 @@ import { PageContainer } from "@/components/shared/PageContainer";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { TableCard } from "@/components/shared/TableCard";
 import { TableSkeleton } from "@/components/shared/TableSkeleton";
+import { TablePagination } from "@/components/shared/TablePagination";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { ErrorState } from "@/components/shared/ErrorState";
 import { OrderFilterBar, type OrderStatusFilter, type OrderSourceFilter } from "@/components/admin/OrderFilterBar";
+import { OrderStatusBadge } from "@/components/admin/OrderStatusBadge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Pagination,
-  PaginationContent,
-  PaginationEllipsis,
-  PaginationItem,
-  PaginationLink,
-  PaginationNext,
-  PaginationPrevious,
-} from "@/components/ui/pagination";
 import {
   Table,
   TableBody,
@@ -40,8 +26,15 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { formatCurrency } from "@/lib/currency";
-import { orderStatusClassName } from "@/lib/design-tokens";
-import { getPageNumbers } from "@/lib/pagination";
+import {
+  controls,
+  orderSourceLabel,
+  refundOwedClassName,
+  statusPill,
+  typography,
+} from "@/lib/design-tokens";
+import { PreorderBadge } from "@/components/admin/PreorderBadge";
+import { DispatchBadge } from "@/components/admin/DispatchBadge";
 import { cn } from "@/lib/utils";
 
 const PER_PAGE_OPTIONS = [10, 25, 50] as const;
@@ -50,6 +43,24 @@ const dateFormatter = new Intl.DateTimeFormat(undefined, {
   dateStyle: "medium",
   timeStyle: "short",
 });
+
+// Declared once so the skeleton and the loaded table can't disagree about
+// the column set — see the same note on the products list.
+const COLUMNS = ["Order", "Source", "Status", "Date", "Total"] as const;
+
+function OrderTableHead() {
+  return (
+    <TableHeader>
+      <TableRow>
+        {COLUMNS.map((column, i) => (
+          <TableHead key={column} className={i === COLUMNS.length - 1 ? "text-right" : undefined}>
+            {column}
+          </TableHead>
+        ))}
+      </TableRow>
+    </TableHeader>
+  );
+}
 
 export default function OrdersPage() {
   const [page, setPage] = useState(1);
@@ -100,16 +111,22 @@ export default function OrdersPage() {
     setDateTo("");
   }
 
-  function handlePerPageChange(value: string | null) {
-    if (!value) return;
-    setPerPage(Number(value));
+  function handlePerPageChange(value: number) {
+    setPerPage(value);
     setPage(1);
   }
 
   return (
     <PageContainer size="full">
-      <div className="flex flex-col gap-6">
-        <PageHeader title="Orders" />
+      <div className="flex flex-col gap-5">
+        <PageHeader
+          title="Orders"
+          description={
+            meta && meta.total > 0
+              ? `${meta.total} ${meta.total === 1 ? "order" : "orders"} matching this view`
+              : undefined
+          }
+        />
 
         <OrderFilterBar
           status={status}
@@ -121,6 +138,8 @@ export default function OrdersPage() {
           dateTo={dateTo}
           onDateToChange={setDateTo}
           isFetching={isFetching && !isPending}
+          onClear={clearFilters}
+          isFiltered={hasActiveFilters}
         />
 
         {error && <ErrorState message={error} />}
@@ -128,18 +147,9 @@ export default function OrdersPage() {
         {!error && isPending && (
           <TableCard>
             <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="pl-4">Order</TableHead>
-                  <TableHead>Source</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Customer / Cashier</TableHead>
-                  <TableHead>Date</TableHead>
-                  <TableHead className="pr-4 text-right">Total</TableHead>
-                </TableRow>
-              </TableHeader>
+              <OrderTableHead />
               <TableBody>
-                <TableSkeleton columns={6} />
+                <TableSkeleton columns={COLUMNS.length} />
               </TableBody>
             </Table>
           </TableCard>
@@ -153,7 +163,12 @@ export default function OrdersPage() {
               title="No orders match your filters"
               description="Try widening the date range, or clear the filters to see every order."
               action={
-                <Button type="button" variant="outline" size="sm" onClick={clearFilters}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={clearFilters}
+                  className={controls.button}
+                >
                   Clear filters
                 </Button>
               }
@@ -166,42 +181,76 @@ export default function OrdersPage() {
             />
           ))}
 
-        {orders !== undefined && orders.length > 0 && (
-          <TableCard>
+        {orders !== undefined && orders.length > 0 && meta && (
+          <TableCard
+            footer={
+              <TablePagination
+                meta={meta}
+                page={page}
+                onPageChange={setPage}
+                perPage={perPage}
+                onPerPageChange={handlePerPageChange}
+                perPageOptions={PER_PAGE_OPTIONS}
+                label="orders"
+              />
+            }
+          >
             <Table className={cn(isFetching && !isPending && "opacity-60 transition-opacity")}>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="pl-4">Order</TableHead>
-                  <TableHead>Source</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Customer / Cashier</TableHead>
-                  <TableHead>Date</TableHead>
-                  <TableHead className="pr-4 text-right">Total</TableHead>
-                </TableRow>
-              </TableHeader>
+              <OrderTableHead />
               <TableBody>
                 {orders.map((order) => (
                   <TableRow key={order.id}>
-                    <TableCell className="py-3.5 pl-4 font-medium">
-                      <Link href={`/orders/${order.id}`} className="text-primary hover:underline">
-                        {order.order_number}
-                      </Link>
+                    {/* Who the order is for used to be its own column, mostly
+                        holding an em dash for POS sales. As the order
+                        number's second line it costs no width and reads as
+                        what it is: an attribute of the order, not a
+                        dimension you scan down. */}
+                    <TableCell>
+                      <div className="flex flex-col gap-0.5">
+                        <Link
+                          href={`/orders/${order.id}`}
+                          className="font-medium transition-colors hover:text-primary"
+                        >
+                          {order.order_number}
+                        </Link>
+                        <span className="text-xs text-muted-foreground">
+                          {order.customer_name ?? order.cashier_name ?? "No customer recorded"}
+                        </span>
+                      </div>
                     </TableCell>
-                    <TableCell className="py-3.5 text-muted-foreground capitalize">
-                      {order.source}
+
+                    <TableCell className="text-muted-foreground">
+                      {orderSourceLabel[order.source] ?? order.source}
                     </TableCell>
-                    <TableCell className="py-3.5">
-                      <Badge variant="outline" className={cn("capitalize", orderStatusClassName[order.status])}>
-                        {order.status}
-                      </Badge>
+
+                    <TableCell>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <OrderStatusBadge status={order.status} />
+                        {/* An obligation, not a status — so it sits beside
+                            "Cancelled" rather than replacing it. This list is
+                            where a shop would notice one they'd forgotten. */}
+                        {order.refund_required && !order.refunded_at && (
+                          <Badge variant="secondary" className={cn(statusPill, refundOwedClassName)}>
+                            Refund owed
+                          </Badge>
+                        )}
+                        {/* Without this, a preorder sitting at "pending" for
+                            three weeks is indistinguishable from one nobody
+                            has picked up. */}
+                        {order.has_preorder_items && <PreorderBadge />}
+                        {/* Same reasoning, other direction: a
+                            cash-on-delivery order is dispatched while still
+                            "pending", so neither the status nor the payment
+                            state can tell you the parcel has already gone. */}
+                        {order.is_dispatched && <DispatchBadge />}
+                      </div>
                     </TableCell>
-                    <TableCell className="py-3.5 text-muted-foreground">
-                      {order.customer_name ?? order.cashier_name ?? "—"}
-                    </TableCell>
-                    <TableCell className="py-3.5 text-muted-foreground">
+
+                    <TableCell className="text-muted-foreground">
                       {dateFormatter.format(new Date(order.created_at))}
                     </TableCell>
-                    <TableCell className="py-3.5 pr-4 text-right tabular-nums">
+
+                    <TableCell className={cn("text-right font-medium", typography.numeric)}>
                       {formatCurrency(order.total, order.currency)}
                     </TableCell>
                   </TableRow>
@@ -209,79 +258,6 @@ export default function OrdersPage() {
               </TableBody>
             </Table>
           </TableCard>
-        )}
-
-        {meta && meta.total > 0 && (
-          <div className="flex flex-col items-center justify-between gap-4 sm:flex-row">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <span>
-                Showing {meta.from}–{meta.to} of {meta.total}
-              </span>
-              <Select value={String(perPage)} onValueChange={handlePerPageChange}>
-                <SelectTrigger size="sm" className="w-27.5">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {PER_PAGE_OPTIONS.map((option) => (
-                    <SelectItem key={option} value={String(option)}>
-                      {option} / page
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {meta.last_page > 1 && (
-              <Pagination className="mx-0 w-auto">
-                <PaginationContent>
-                  <PaginationItem>
-                    <PaginationPrevious
-                      href="#"
-                      aria-disabled={page === 1}
-                      className={page === 1 ? "pointer-events-none opacity-50" : undefined}
-                      onClick={(e) => {
-                        e.preventDefault();
-                        if (page > 1) setPage(page - 1);
-                      }}
-                    />
-                  </PaginationItem>
-
-                  {getPageNumbers(page, meta.last_page).map((entry, i) =>
-                    entry === "ellipsis" ? (
-                      <PaginationItem key={`ellipsis-${i}`}>
-                        <PaginationEllipsis />
-                      </PaginationItem>
-                    ) : (
-                      <PaginationItem key={entry}>
-                        <PaginationLink
-                          href="#"
-                          isActive={entry === page}
-                          onClick={(e) => {
-                            e.preventDefault();
-                            setPage(entry);
-                          }}
-                        >
-                          {entry}
-                        </PaginationLink>
-                      </PaginationItem>
-                    ),
-                  )}
-
-                  <PaginationItem>
-                    <PaginationNext
-                      href="#"
-                      aria-disabled={page === meta.last_page}
-                      className={page === meta.last_page ? "pointer-events-none opacity-50" : undefined}
-                      onClick={(e) => {
-                        e.preventDefault();
-                        if (page < meta.last_page) setPage(page + 1);
-                      }}
-                    />
-                  </PaginationItem>
-                </PaginationContent>
-              </Pagination>
-            )}
-          </div>
         )}
       </div>
     </PageContainer>

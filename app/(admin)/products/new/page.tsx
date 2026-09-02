@@ -3,18 +3,23 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { ApiError } from "@/lib/api-client";
 import { useCreateProduct } from "@/lib/hooks/useCreateProduct";
 import { PageContainer } from "@/components/shared/PageContainer";
 import { PageHeader } from "@/components/shared/PageHeader";
-import { ErrorState } from "@/components/shared/ErrorState";
+import { ApiErrorState } from "@/components/shared/ApiErrorState";
 import { ProductForm, type ProductFormProps, type ProductFormState } from "@/components/admin/ProductForm";
+import {
+  PreorderFields,
+  preorderLeadTimeValue,
+  validatePreorderLeadTime,
+} from "@/components/admin/PreorderFields";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Card, CardContent } from "@/components/ui/card";
-import { typography } from "@/lib/design-tokens";
+import { controls, typography } from "@/lib/design-tokens";
 
 interface FormState extends ProductFormState {
   sku: string;
@@ -22,6 +27,9 @@ interface FormState extends ProductFormState {
   sellingPrice: string;
   unit: string;
   stock: string;
+  allowPreorder: boolean;
+  preorderLeadTimeDays: string;
+  preorderRequiresPrepayment: boolean;
 }
 
 const initialForm: FormState = {
@@ -36,6 +44,9 @@ const initialForm: FormState = {
   sellingPrice: "",
   unit: "",
   stock: "",
+  allowPreorder: false,
+  preorderLeadTimeDays: "",
+  preorderRequiresPrepayment: false,
 };
 
 function validate(form: FormState): Partial<Record<keyof FormState, string>> {
@@ -59,6 +70,9 @@ function validate(form: FormState): Partial<Record<keyof FormState, string>> {
   if (!form.stock.trim() || !Number.isFinite(stock) || stock < 0) {
     errors.stock = "Initial stock must be zero or a positive number.";
   }
+
+  const leadTimeError = validatePreorderLeadTime(form.preorderLeadTimeDays);
+  if (leadTimeError) errors.preorderLeadTimeDays = leadTimeError;
 
   return errors;
 }
@@ -93,6 +107,9 @@ export default function NewProductPage() {
           selling_price: Number(form.sellingPrice),
           unit: form.unit.trim(),
           current_stock: Number(form.stock),
+          allow_preorder: form.allowPreorder,
+          preorder_lead_time_days: preorderLeadTimeValue(form.preorderLeadTimeDays),
+          preorder_requires_prepayment: form.preorderRequiresPrepayment,
         },
         images: pendingImages,
       });
@@ -104,11 +121,6 @@ export default function NewProductPage() {
     }
   }
 
-  const submitError = createProduct.error
-    ? createProduct.error instanceof ApiError
-      ? createProduct.error.message
-      : "Something went wrong. Please try again."
-    : null;
 
   return (
     <PageContainer size="lg">
@@ -138,12 +150,23 @@ export default function NewProductPage() {
                 <span className="text-sm">SKU</span>
                 <Input
                   type="text"
+                  placeholder="TSHIRT-RED-L"
                   value={form.sku}
                   onChange={(e) => updateField("sku", e.target.value)}
+                  className={controls.input}
                 />
                 {errors.sku && <span className="text-sm text-destructive">{errors.sku}</span>}
               </Label>
 
+              {/*
+                Money placeholders name the side of the trade, never an amount.
+                An example figure would be wrong in one of the two currencies
+                this is sold in (4500 reads as a fair price in MMK and an absurd
+                one in THB), and — as in PreorderFields — a placeholder that
+                reads as a value is how a made-up number gets accepted as real.
+                "Buying"/"selling" is also the jargon a first-time shop owner
+                most often has backwards, so plain wording earns its place here.
+              */}
               <div className="flex gap-4">
                 <Label className="flex flex-1 flex-col items-stretch gap-1">
                   <span className="text-sm">Buying price</span>
@@ -151,8 +174,10 @@ export default function NewProductPage() {
                     type="number"
                     step="0.01"
                     min="0"
+                    placeholder="What you paid"
                     value={form.buyingPrice}
                     onChange={(e) => updateField("buyingPrice", e.target.value)}
+                    className={controls.input}
                   />
                   {errors.buyingPrice && (
                     <span className="text-sm text-destructive">{errors.buyingPrice}</span>
@@ -165,8 +190,10 @@ export default function NewProductPage() {
                     type="number"
                     step="0.01"
                     min="0"
+                    placeholder="What you charge"
                     value={form.sellingPrice}
                     onChange={(e) => updateField("sellingPrice", e.target.value)}
+                    className={controls.input}
                   />
                   {errors.sellingPrice && (
                     <span className="text-sm text-destructive">{errors.sellingPrice}</span>
@@ -182,6 +209,7 @@ export default function NewProductPage() {
                     placeholder="pcs, kg, box..."
                     value={form.unit}
                     onChange={(e) => updateField("unit", e.target.value)}
+                    className={controls.input}
                   />
                   {errors.unit && <span className="text-sm text-destructive">{errors.unit}</span>}
                 </Label>
@@ -192,8 +220,10 @@ export default function NewProductPage() {
                     type="number"
                     step="1"
                     min="0"
+                    placeholder="Units in hand"
                     value={form.stock}
                     onChange={(e) => updateField("stock", e.target.value)}
+                    className={controls.input}
                   />
                   {errors.stock && (
                     <span className="text-sm text-destructive">{errors.stock}</span>
@@ -201,9 +231,30 @@ export default function NewProductPage() {
                 </Label>
               </div>
 
-              {submitError && <ErrorState message={submitError} />}
+              <PreorderFields
+                allowPreorder={form.allowPreorder}
+                leadTimeDays={form.preorderLeadTimeDays}
+                requiresPrepayment={form.preorderRequiresPrepayment}
+                onAllowPreorderChange={(value) => updateField("allowPreorder", value)}
+                onLeadTimeChange={(value) => updateField("preorderLeadTimeDays", value)}
+                onRequiresPrepaymentChange={(value) =>
+                  updateField("preorderRequiresPrepayment", value)
+                }
+                error={errors.preorderLeadTimeDays}
+              />
 
-              <Button type="submit" disabled={createProduct.isPending} className="w-fit">
+              {/* Creating a product is the one write most likely to meet a
+                  402: it's blocked outright for a read-only shop, and it's
+                  where plan_limit_exceeded fires when a Starter shop hits its
+                  50th product. Both need the route to billing, not a dead
+                  end. Note the shop keeps every product it already has —
+                  only creating more is refused. */}
+              <ApiErrorState
+                error={createProduct.error}
+                fallback="Something went wrong. Please try again."
+              />
+
+              <Button type="submit" disabled={createProduct.isPending} className={cn(controls.button, "w-fit")}>
                 {createProduct.isPending ? "Creating..." : "Create product"}
               </Button>
             </form>

@@ -29,6 +29,10 @@ interface ImageLightboxProps {
  * The original is still one click away inside the dialog — a phone
  * screenshot can be taller than any overlay, and pinch-zoom on the real file
  * is the only way to read the small print on some of them.
+ *
+ * In shared/ because the platform console reviews transfer screenshots the
+ * same way the shop reviews a customer's: side by side with the record it is
+ * supposed to match, without losing that record to another tab.
  */
 export function ImageLightbox({
   src,

@@ -1,5 +1,6 @@
 "use client";
 
+import { controls } from "@/lib/design-tokens";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { viberLink } from "@/lib/shop-profile";
@@ -106,6 +107,7 @@ export function SocialLinksForm({ form, errors, onFieldChange }: SocialLinksForm
             spellCheck={false}
             value={form[field.key]}
             onChange={(e) => onFieldChange(field.key, e.target.value)}
+            className={controls.input}
           />
           {field.key === "viber_phone" ? (
             <span className="text-xs text-muted-foreground">

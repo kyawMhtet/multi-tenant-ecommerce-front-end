@@ -1,5 +1,6 @@
 import { Badge } from "@/components/ui/badge";
-import { stockStatusStyles } from "@/lib/design-tokens";
+import { cn } from "@/lib/utils";
+import { stockStatusStyles, statusPill } from "@/lib/design-tokens";
 import type { StorefrontProductVariant } from "@/lib/types";
 
 interface StockBadgeProps {
@@ -12,7 +13,7 @@ interface StockBadgeProps {
 export function StockBadge({ status, label }: StockBadgeProps) {
   const style = stockStatusStyles[status];
   return (
-    <Badge variant="outline" className={style.badgeClassName}>
+    <Badge variant="secondary" className={cn(statusPill, style.badgeClassName)}>
       {label ?? style.label}
     </Badge>
   );

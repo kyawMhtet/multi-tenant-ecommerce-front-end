@@ -1,3 +1,4 @@
+import { PreorderBadge } from "@/components/admin/PreorderBadge";
 import { typography } from "@/lib/design-tokens";
 import { orderItemIdentity, orderItemName } from "@/lib/order-items";
 import { cn } from "@/lib/utils";
@@ -17,7 +18,14 @@ export function OrderItemLabel({ item }: { item: OrderItem }) {
 
   return (
     <div className="flex flex-col gap-0.5">
-      <span>{orderItemName(item)}</span>
+      {/* Marked per line, never per order: a cart holding one item off the
+          shelf and one on order is normal, and saying "preorder" over the
+          whole thing would misdescribe the half that's ready now. The badge
+          carries this line's own estimate when it has one. */}
+      <span className="flex flex-wrap items-center gap-2">
+        {orderItemName(item)}
+        {item.is_preorder && <PreorderBadge leadTimeDays={item.preorder_lead_time_days} />}
+      </span>
       {/* Dropped entirely when the item has neither a SKU nor attributes, so
           a simple product gets no blank second line. whitespace-normal
           because TableCell is nowrap by default and TableCard clips its

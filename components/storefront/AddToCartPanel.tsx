@@ -1,11 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { Check, ShieldCheck } from "lucide-react";
+import { CalendarClock, Check, ShieldCheck } from "lucide-react";
 import { StockBadge } from "@/components/shared/StockBadge";
 import { QuantityStepper } from "@/components/storefront/QuantityStepper";
 import { useCart } from "@/components/storefront/CartProvider";
 import { formatMoney } from "@/lib/currency";
+import { preorderWaitText } from "@/lib/preorder";
 import { storefrontStockLabel, storefrontType } from "@/lib/design-tokens";
 import type { StorefrontProduct, StorefrontProductVariant } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -25,8 +26,14 @@ export function AddToCartPanel({ product, selectedVariant, onSelectVariant }: Ad
   const [quantity, setQuantity] = useState(1);
 
   const currency = product.shop.currency;
+  // Only out_of_stock blocks a sale — preorder is buyable, just later.
   const isOutOfStock = selectedVariant.stock_status === "out_of_stock";
   const isLowStock = selectedVariant.stock_status === "low_stock";
+  const isPreorder = selectedVariant.stock_status === "preorder";
+  // Said here as well as at checkout, where it's actually enforced: someone
+  // who only ever pays cash on delivery should find that out while deciding,
+  // not after they've filled in their address.
+  const needsPrepayment = isPreorder && selectedVariant.preorder_requires_prepayment === true;
   const hasOtherOptions = product.variants.length > 1;
 
   function handleAddToCart() {
@@ -44,6 +51,8 @@ export function AddToCartPanel({ product, selectedVariant, onSelectVariant }: Ad
         // precedence as the gallery.
         imageUrl: (selectedVariant.images[0] ?? product.images[0])?.url ?? null,
         stockStatus: selectedVariant.stock_status,
+        preorderLeadTimeDays: selectedVariant.preorder_lead_time_days,
+        preorderRequiresPrepayment: selectedVariant.preorder_requires_prepayment,
       },
       Math.max(1, Math.floor(quantity)),
     );
@@ -107,6 +116,18 @@ export function AddToCartPanel({ product, selectedVariant, onSelectVariant }: Ad
             ? "This option is sold out — choose another above."
             : "This item is sold out right now. Check back soon."}
         </p>
+      ) : isPreorder ? (
+        <div className="flex items-start gap-2.5 rounded-xl bg-sky-50 px-4 py-3 text-sm text-sky-900">
+          <CalendarClock className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+          <span>
+            <span className="font-medium">
+              {preorderWaitText(selectedVariant.preorder_lead_time_days)}
+            </span>
+            <br />
+            This item is made to order — place it now and it ships when ready.
+            {needsPrepayment && " Preorders are paid in advance."}
+          </span>
+        </div>
       ) : (
         isLowStock && (
           <p className="rounded-xl bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
@@ -137,7 +158,7 @@ export function AddToCartPanel({ product, selectedVariant, onSelectVariant }: Ad
             "hover:opacity-90 active:translate-y-px disabled:opacity-40 disabled:hover:opacity-40",
           )}
         >
-          {isOutOfStock ? "Sold out" : "Add to cart"}
+          {isOutOfStock ? "Sold out" : isPreorder ? "Preorder" : "Add to cart"}
         </button>
       </div>
 

@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
-import { ApiError } from "@/lib/api-client";
 import { useUpdateVariant } from "@/lib/hooks/useUpdateVariant";
 import {
   Dialog,
@@ -13,11 +12,19 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { controls } from "@/lib/design-tokens";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import { ErrorState } from "@/components/shared/ErrorState";
+import { ApiErrorState } from "@/components/shared/ApiErrorState";
 import { ProductImagePicker } from "@/components/admin/ProductImagePicker";
+import {
+  PreorderFields,
+  preorderLeadTimeValue,
+  validatePreorderLeadTime,
+} from "@/components/admin/PreorderFields";
+import { BackorderBadge } from "@/components/admin/BackorderBadge";
+import { backorderedUnits } from "@/lib/stock";
 import type { ProductVariant } from "@/lib/types";
 
 interface EditVariantFormState {
@@ -29,6 +36,9 @@ interface EditVariantFormState {
   unit: string;
   lowStockThreshold: string;
   trackStock: boolean;
+  allowPreorder: boolean;
+  preorderLeadTimeDays: string;
+  preorderRequiresPrepayment: boolean;
   isActive: boolean;
 }
 
@@ -42,6 +52,12 @@ function formStateFromVariant(variant: ProductVariant): EditVariantFormState {
     unit: variant.unit ?? "",
     lowStockThreshold: variant.low_stock_threshold ?? "",
     trackStock: variant.track_stock,
+    allowPreorder: variant.allow_preorder,
+    // null ("no estimate") becomes "", which is exactly what the input
+    // shows for it — and what turns back into null on the way out.
+    preorderLeadTimeDays:
+      variant.preorder_lead_time_days === null ? "" : String(variant.preorder_lead_time_days),
+    preorderRequiresPrepayment: variant.preorder_requires_prepayment,
     isActive: variant.is_active,
   };
 }
@@ -71,6 +87,9 @@ function validate(
       errors.lowStockThreshold = "Low stock threshold must be zero or a positive number.";
     }
   }
+
+  const leadTimeError = validatePreorderLeadTime(form.preorderLeadTimeDays);
+  if (leadTimeError) errors.preorderLeadTimeDays = leadTimeError;
 
   return errors;
 }
@@ -135,6 +154,11 @@ export function EditVariantDialog({ productId, variant }: EditVariantDialogProps
             ? Number(form.lowStockThreshold)
             : null,
           track_stock: form.trackStock,
+          allow_preorder: form.allowPreorder,
+          // Sent whatever the checkbox says: the estimate survives preorder
+          // being switched off, so switching it back on doesn't lose it.
+          preorder_lead_time_days: preorderLeadTimeValue(form.preorderLeadTimeDays),
+          preorder_requires_prepayment: form.preorderRequiresPrepayment,
           is_active: form.isActive,
           images: pendingImages.length > 0 ? pendingImages : undefined,
           remove_image_ids: imagesToDelete.length > 0 ? imagesToDelete : undefined,
@@ -143,16 +167,11 @@ export function EditVariantDialog({ productId, variant }: EditVariantDialogProps
       toast.success("Variant updated.");
       setOpen(false);
     } catch {
-      // Surfaced via submitError below — a duplicate sku (422) is the
+      // Surfaced via the ApiErrorState below — a duplicate sku (422) is the
       // expected failure case here, not a bug to handle further.
     }
   }
 
-  const submitError = updateVariant.error
-    ? updateVariant.error instanceof ApiError
-      ? updateVariant.error.message
-      : "Something went wrong. Please try again."
-    : null;
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -171,8 +190,10 @@ export function EditVariantDialog({ productId, variant }: EditVariantDialogProps
             <span className="text-sm">Variant name</span>
             <Input
               type="text"
+              placeholder="Red / Large"
               value={form.variantName}
               onChange={(e) => updateField("variantName", e.target.value)}
+              className={controls.input}
             />
             {errors.variantName && (
               <span className="text-sm text-destructive">{errors.variantName}</span>
@@ -184,8 +205,10 @@ export function EditVariantDialog({ productId, variant }: EditVariantDialogProps
               <span className="text-sm">SKU</span>
               <Input
                 type="text"
+                placeholder="TSHIRT-RED-L"
                 value={form.sku}
                 onChange={(e) => updateField("sku", e.target.value)}
+                className={controls.input}
               />
               {errors.sku && <span className="text-sm text-destructive">{errors.sku}</span>}
             </Label>
@@ -194,8 +217,10 @@ export function EditVariantDialog({ productId, variant }: EditVariantDialogProps
               <span className="text-sm">Barcode</span>
               <Input
                 type="text"
+                placeholder="8850123456789"
                 value={form.barcode}
                 onChange={(e) => updateField("barcode", e.target.value)}
+                className={controls.input}
               />
             </Label>
           </div>
@@ -207,8 +232,10 @@ export function EditVariantDialog({ productId, variant }: EditVariantDialogProps
                 type="number"
                 step="0.01"
                 min="0"
+                placeholder="What you paid"
                 value={form.buyingPrice}
                 onChange={(e) => updateField("buyingPrice", e.target.value)}
+                className={controls.input}
               />
               {errors.buyingPrice && (
                 <span className="text-sm text-destructive">{errors.buyingPrice}</span>
@@ -221,8 +248,10 @@ export function EditVariantDialog({ productId, variant }: EditVariantDialogProps
                 type="number"
                 step="0.01"
                 min="0"
+                placeholder="What you charge"
                 value={form.sellingPrice}
                 onChange={(e) => updateField("sellingPrice", e.target.value)}
+                className={controls.input}
               />
               {errors.sellingPrice && (
                 <span className="text-sm text-destructive">{errors.sellingPrice}</span>
@@ -238,6 +267,7 @@ export function EditVariantDialog({ productId, variant }: EditVariantDialogProps
                 placeholder="pcs, kg, box..."
                 value={form.unit}
                 onChange={(e) => updateField("unit", e.target.value)}
+                className={controls.input}
               />
               {errors.unit && <span className="text-sm text-destructive">{errors.unit}</span>}
             </Label>
@@ -251,12 +281,34 @@ export function EditVariantDialog({ productId, variant }: EditVariantDialogProps
                 placeholder="None"
                 value={form.lowStockThreshold}
                 onChange={(e) => updateField("lowStockThreshold", e.target.value)}
+                className={controls.input}
               />
               {errors.lowStockThreshold && (
                 <span className="text-sm text-destructive">{errors.lowStockThreshold}</span>
               )}
             </Label>
           </div>
+
+          <PreorderFields
+            allowPreorder={form.allowPreorder}
+            leadTimeDays={form.preorderLeadTimeDays}
+            requiresPrepayment={form.preorderRequiresPrepayment}
+            onAllowPreorderChange={(value) => updateField("allowPreorder", value)}
+            onLeadTimeChange={(value) => updateField("preorderLeadTimeDays", value)}
+            onRequiresPrepaymentChange={(value) =>
+              updateField("preorderRequiresPrepayment", value)
+            }
+            error={errors.preorderLeadTimeDays}
+          />
+
+          {/* What preorder has already cost this variant, where the shop is
+              deciding whether to keep it on. */}
+          {backorderedUnits(variant.current_stock) > 0 && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <BackorderBadge units={backorderedUnits(variant.current_stock)} />
+              already sold and owed to customers.
+            </div>
+          )}
 
           <div className="flex flex-col gap-2">
             <Label className="flex items-center gap-1.5 text-sm font-normal">
@@ -285,13 +337,16 @@ export function EditVariantDialog({ productId, variant }: EditVariantDialogProps
             onPendingFilesChange={setPendingImages}
           />
 
-          {submitError && <ErrorState message={submitError} />}
+          <ApiErrorState
+            error={updateVariant.error}
+            fallback="Something went wrong. Please try again."
+          />
 
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => handleOpenChange(false)}>
+            <Button type="button" variant="outline" onClick={() => handleOpenChange(false)} className={controls.button}>
               Cancel
             </Button>
-            <Button type="submit" disabled={updateVariant.isPending}>
+            <Button type="submit" disabled={updateVariant.isPending} className={controls.button}>
               {updateVariant.isPending ? "Saving..." : "Save changes"}
             </Button>
           </DialogFooter>

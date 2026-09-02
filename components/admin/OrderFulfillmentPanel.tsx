@@ -5,7 +5,7 @@ import { Bike, Copy, MapPin, StickyNote, Store } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { typography } from "@/lib/design-tokens";
+import { controls, typography } from "@/lib/design-tokens";
 import type { DeliveryAddress, Order } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -86,8 +86,7 @@ export function OrderFulfillmentPanel({ order }: { order: Order }) {
                 <Button
                   type="button"
                   variant="outline"
-                  size="sm"
-                  className="shrink-0"
+                  className={cn(controls.buttonSm, "shrink-0")}
                   onClick={() => handleCopy(address.full_address)}
                 >
                   <Copy data-icon="inline-start" className="size-4" />

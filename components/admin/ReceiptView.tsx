@@ -12,6 +12,7 @@ import {
 import { OrderItemLabel } from "@/components/admin/OrderItemLabel";
 import { formatQuantity } from "@/lib/currency";
 import type { Order } from "@/lib/types";
+import { controls } from "@/lib/design-tokens";
 
 const priceFormatter = new Intl.NumberFormat(undefined, {
   minimumFractionDigits: 2,
@@ -37,25 +38,25 @@ export function ReceiptView({ order, onNewSale }: { order: Order; onNewSale: () 
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="pl-4">Item</TableHead>
+              <TableHead>Item</TableHead>
               <TableHead className="text-right">Qty</TableHead>
               <TableHead className="text-right">Price</TableHead>
-              <TableHead className="pr-4 text-right">Total</TableHead>
+              <TableHead className="text-right">Total</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {order.items.map((item) => (
               <TableRow key={item.id}>
-                <TableCell className="py-3.5 pl-4 align-top font-medium">
+                <TableCell className="align-top font-medium">
                   <OrderItemLabel item={item} />
                 </TableCell>
-                <TableCell className="py-3.5 text-right align-top tabular-nums">
+                <TableCell className="text-right align-top tabular-nums">
                   {formatQuantity(item.quantity)}
                 </TableCell>
-                <TableCell className="py-3.5 text-right align-top tabular-nums">
+                <TableCell className="text-right align-top tabular-nums">
                   {priceFormatter.format(Number(item.unit_price))}
                 </TableCell>
-                <TableCell className="py-3.5 pr-4 text-right align-top tabular-nums">
+                <TableCell className="text-right align-top tabular-nums">
                   {priceFormatter.format(Number(item.line_total))}
                 </TableCell>
               </TableRow>
@@ -69,7 +70,7 @@ export function ReceiptView({ order, onNewSale }: { order: Order; onNewSale: () 
         <span className="tabular-nums">{priceFormatter.format(Number(order.total))}</span>
       </div>
 
-      <Button type="button" onClick={onNewSale}>
+      <Button type="button" onClick={onNewSale} className={controls.button}>
         New sale
       </Button>
     </div>

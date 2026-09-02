@@ -40,3 +40,22 @@ export function orderItemIdentity(item: OrderItem): string {
 export function orderItemName(item: OrderItem): string {
   return item.variant_name ? `${item.product_name} — ${item.variant_name}` : item.product_name;
 }
+
+// Whether an order's totals block should carry a Delivery line.
+//
+// Shown for every delivery order, INCLUDING a zero fee: "Delivery 0.00" is
+// the shop telling the customer delivery was free, which is worth saying.
+// Hidden for pickup and POS sales, where there is no fee to be free of, and
+// for orders that predate the field entirely (delivery_fee is detail-only,
+// so it's absent on the list endpoint rather than zero).
+//
+// Shared by the on-screen totals and the printed receipt: the fee is
+// already inside `total`, so a receipt that omits the line has a subtotal
+// and a total that visibly don't reconcile.
+export function hasDeliveryLine(order: {
+  fulfillment_type: string | null;
+  delivery_fee?: string;
+}): boolean {
+  if (order.delivery_fee === undefined) return false;
+  return order.fulfillment_type === "delivery" || Number(order.delivery_fee) > 0;
+}

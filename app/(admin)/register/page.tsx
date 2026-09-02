@@ -7,6 +7,13 @@ import { ApiError } from "@/lib/api-client";
 import { useRegister } from "@/lib/hooks/useRegister";
 import { setStoredTenantSlug, setStoredToken, setStoredUserName } from "@/lib/auth";
 import { slugify, validateSlug } from "@/lib/slug";
+import {
+  DEFAULT_CURRENCY,
+  DEFAULT_TIMEZONE,
+  detectTimezone,
+  isShopCurrency,
+  suggestCurrency,
+} from "@/lib/timezones";
 import { storefrontHost } from "@/lib/tenant";
 import { ErrorState } from "@/components/shared/ErrorState";
 import { AuthCard } from "@/components/admin/AuthCard";
@@ -17,6 +24,10 @@ import {
 } from "@/components/admin/RegisterForm";
 import { Button } from "@/components/ui/button";
 
+// currency/timezone start on the API's own defaults rather than the
+// browser's, because the browser's can only be read after mount — seeding
+// them from `Intl` during render would make the server and client HTML
+// differ. The mount effect below upgrades both.
 const initialForm: RegisterFormState = {
   shop_name: "",
   slug: "",
@@ -24,6 +35,8 @@ const initialForm: RegisterFormState = {
   owner_email: "",
   owner_phone: "",
   password: "",
+  currency: DEFAULT_CURRENCY,
+  timezone: DEFAULT_TIMEZONE,
 };
 
 const FORM_KEYS = Object.keys(initialForm) as (keyof RegisterFormState)[];
@@ -52,6 +65,13 @@ function validate(form: RegisterFormState): RegisterFormErrors {
   if (form.password.length < 8) {
     errors.password = "Password must be at least 8 characters.";
   }
+
+  if (!form.timezone.trim()) errors.timezone = "Choose your timezone.";
+
+  // Not reachable through the picker; this is the mirror of the API's
+  // in:MMK,THB,USD rule, and the field it guards can never be corrected
+  // afterwards.
+  if (!isShopCurrency(form.currency)) errors.currency = "Choose one of MMK, THB or USD.";
 
   return errors;
 }
@@ -89,6 +109,18 @@ export default function RegisterPage() {
     // keeps the server and first client render identical.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setPreviewHost(window.location.host);
+
+    // The owner's own zone, and the currency that usually goes with it — a
+    // Bangkok signup lands on Asia/Bangkok and THB rather than silently
+    // trading in Kyat. Both stay editable; this only replaces the API
+    // defaults the form started on, and runs once, before anyone could have
+    // touched either field.
+    const timezone = detectTimezone();
+    setForm((prev) => ({
+      ...prev,
+      timezone,
+      currency: suggestCurrency(timezone),
+    }));
   }, []);
 
   function updateField<K extends keyof RegisterFormState>(key: K, value: RegisterFormState[K]) {
@@ -130,6 +162,11 @@ export default function RegisterPage() {
         // Not trimmed — leading/trailing spaces are legitimate password
         // characters, and the backend compares what it was given.
         password: form.password,
+        // Always sent, never left to the server's defaults: the form has
+        // asked, so the answer is explicit — and for currency there's no
+        // second chance to correct it.
+        currency: form.currency,
+        timezone: form.timezone,
       });
 
       // 201 carries a token, so the owner is already logged in — this is the

@@ -7,9 +7,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
+import { OrderStatusBadge } from "@/components/admin/OrderStatusBadge";
 import { formatCurrency } from "@/lib/currency";
-import { orderStatusClassName } from "@/lib/design-tokens";
+import { orderSourceLabel, typography } from "@/lib/design-tokens";
+import { cn } from "@/lib/utils";
 import type { DashboardRecentOrder } from "@/lib/types";
 
 const dateFormatter = new Intl.DateTimeFormat(undefined, {
@@ -19,6 +20,9 @@ const dateFormatter = new Intl.DateTimeFormat(undefined, {
   minute: "2-digit",
 });
 
+// Row padding, gutters and the header's small-caps treatment all come from
+// the TableCard this sits in — see the density note there. Cells only carry
+// what's specific to their column (alignment, weight, tabular figures).
 export function RecentOrdersTable({
   orders,
   currency,
@@ -30,31 +34,34 @@ export function RecentOrdersTable({
     <Table>
       <TableHeader>
         <TableRow>
-          <TableHead className="pl-4">Order</TableHead>
+          <TableHead>Order</TableHead>
           <TableHead>Source</TableHead>
           <TableHead>Status</TableHead>
           <TableHead>Date</TableHead>
-          <TableHead className="pr-4 text-right">Total</TableHead>
+          <TableHead className="text-right">Total</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
         {orders.map((order) => (
           <TableRow key={order.id}>
-            <TableCell className="py-3.5 pl-4 font-medium">
-              <Link href={`/orders/${order.id}`} className="text-primary hover:underline">
+            <TableCell className="font-medium">
+              <Link
+                href={`/orders/${order.id}`}
+                className="transition-colors hover:text-primary"
+              >
                 {order.order_number}
               </Link>
             </TableCell>
-            <TableCell className="py-3.5 text-muted-foreground capitalize">{order.source}</TableCell>
-            <TableCell className="py-3.5">
-              <Badge variant="outline" className={orderStatusClassName[order.status] ?? ""}>
-                {order.status}
-              </Badge>
+            <TableCell className="text-muted-foreground">
+              {orderSourceLabel[order.source] ?? order.source}
             </TableCell>
-            <TableCell className="py-3.5 text-muted-foreground">
+            <TableCell>
+              <OrderStatusBadge status={order.status} />
+            </TableCell>
+            <TableCell className="text-muted-foreground">
               {dateFormatter.format(new Date(order.created_at))}
             </TableCell>
-            <TableCell className="py-3.5 pr-4 text-right font-medium tabular-nums">
+            <TableCell className={cn("text-right font-medium", typography.numeric)}>
               {formatCurrency(order.total, currency)}
             </TableCell>
           </TableRow>

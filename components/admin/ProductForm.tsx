@@ -1,3 +1,5 @@
+import { controls } from "@/lib/design-tokens";
+import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -75,8 +77,10 @@ export function ProductForm({
         <span className="text-sm">Name</span>
         <Input
           type="text"
+          placeholder="Cotton T-Shirt"
           value={form.name}
           onChange={(e) => onFieldChange("name", e.target.value)}
+          className={controls.input}
         />
         {errors.name && <span className="text-sm text-destructive">{errors.name}</span>}
       </Label>
@@ -84,9 +88,11 @@ export function ProductForm({
       <Label className="flex flex-col items-stretch gap-1">
         <span className="text-sm">Description</span>
         <Textarea
+          placeholder="What customers should know before buying"
           value={form.description}
           onChange={(e) => onFieldChange("description", e.target.value)}
           rows={3}
+          className={controls.textarea}
         />
       </Label>
 
@@ -107,7 +113,7 @@ export function ProductForm({
             onFieldChange("categoryId", !value || value === "none" ? null : Number(value))
           }
         >
-          <SelectTrigger className="w-full">
+          <SelectTrigger className={cn(controls.select, "w-full")}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>

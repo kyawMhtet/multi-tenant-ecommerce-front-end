@@ -1,19 +1,22 @@
 "use client";
 
+import Link from "next/link";
 import { toast } from "sonner";
-import { CreditCard, ExternalLink, Wallet } from "lucide-react";
-import { ApiError } from "@/lib/api-client";
+import { ArrowRight, CreditCard, ExternalLink, Wallet } from "lucide-react";
+import { billingRefusalToast, parseBillingError, BILLING_PATH } from "@/lib/billing-error";
 import { usePaymentMethods } from "@/lib/hooks/usePaymentMethods";
 import { useStripeStatus } from "@/lib/hooks/useStripeStatus";
 import { useStripeOnboardingLink } from "@/lib/hooks/useStripeOnboardingLink";
 import { PageContainer } from "@/components/shared/PageContainer";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { EmptyState } from "@/components/shared/EmptyState";
-import { ErrorState } from "@/components/shared/ErrorState";
+import { ApiErrorState } from "@/components/shared/ApiErrorState";
 import { LoadingState } from "@/components/shared/LoadingState";
 import { PaymentMethodCard } from "@/components/admin/PaymentMethodCard";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import type { PaymentMethodConfig } from "@/lib/types";
+import { controls } from "@/lib/design-tokens";
+import { cn } from "@/lib/utils";
 
 export default function PaymentsSettingsPage() {
   const { data: methods, isPending, error: queryError } = usePaymentMethods();
@@ -23,11 +26,10 @@ export default function PaymentsSettingsPage() {
   const { data: stripeStatus, error: stripeError } = useStripeStatus();
   const onboardingLink = useStripeOnboardingLink();
 
-  const error = queryError
-    ? queryError instanceof ApiError
-      ? queryError.message
-      : "Could not load payment methods."
-    : null;
+  // A plan refusal on the Stripe read is not a Stripe problem — it means
+  // card payments aren't on this shop's plan at all, so the card row offers
+  // billing rather than a Connect button that would 402 on click.
+  const stripeRefusal = parseBillingError(stripeError);
 
   async function handleConnectStripe() {
     onboardingLink.reset();
@@ -39,7 +41,7 @@ export default function PaymentsSettingsPage() {
       window.location.href = url;
     } catch (err) {
       toast.error(
-        err instanceof ApiError ? err.message : "Could not start Stripe setup. Please try again.",
+        billingRefusalToast(err) ?? "Could not start Stripe setup. Please try again.",
       );
     }
   }
@@ -50,6 +52,23 @@ export default function PaymentsSettingsPage() {
   function blockedProps(method: PaymentMethodConfig) {
     if (method.is_manual || method.gateway !== "stripe") return {};
     if (stripeStatus?.charges_enabled) return {};
+
+    // The plan case first: it's the only one where connecting Stripe isn't
+    // the next step, so offering that button would be a dead end.
+    if (stripeRefusal) {
+      return {
+        blockedReason: stripeRefusal.message,
+        blockedAction: (
+          <Link
+            href={BILLING_PATH}
+            className={cn(buttonVariants({ variant: "outline" }), controls.buttonSm)}
+          >
+            View plans
+            <ArrowRight data-icon="inline-end" className="size-4" />
+          </Link>
+        ),
+      };
+    }
 
     const reason = stripeError
       ? "Couldn't check your Stripe account just now."
@@ -64,10 +83,10 @@ export default function PaymentsSettingsPage() {
       blockedAction: (
         <Button
           type="button"
-          size="sm"
           variant="outline"
           disabled={onboardingLink.isPending}
           onClick={handleConnectStripe}
+          className={controls.buttonSm}
         >
           {onboardingLink.isPending
             ? "Opening..."
@@ -96,9 +115,9 @@ export default function PaymentsSettingsPage() {
           description="How customers pay you on your storefront. Turn on the ones you accept."
         />
 
-        {error && <ErrorState message={error} />}
+        <ApiErrorState error={queryError} fallback="Could not load payment methods." />
 
-        {!error && isPending && <LoadingState rows={4} />}
+        {!queryError && isPending && <LoadingState rows={4} />}
 
         {ordered && ordered.length === 0 && (
           <EmptyState

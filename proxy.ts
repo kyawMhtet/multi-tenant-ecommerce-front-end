@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { resolveTenantSlug } from "@/lib/tenant";
 
-// Paths that only ever belong to the admin app. Reachable on the main
-// domain as always; on a tenant's storefront subdomain they 404 instead of
-// silently rendering the admin dashboard on a customer-facing URL. Nothing
+// Paths that only ever belong to the main domain — the shop admin, plus the
+// platform staff console. Reachable there as always; on a tenant's storefront
+// subdomain they 404 instead of silently rendering the admin dashboard on a
+// customer-facing URL. Nothing
 // else is needed to route a tenant subdomain to the storefront — Next
 // already prefers a literal match (these paths) over the dynamic
 // app/(storefront)/[slug]/page.tsx catch-all, so any other path on a
@@ -22,6 +23,11 @@ const ADMIN_PATHS = [
   "/payments",
   "/reports",
   "/settings",
+  // OUR staff console, not a shop's — reviewing bank transfers across every
+  // tenant. It has no business being reachable at
+  // {some-shop}.example.com/platform, which would put a cross-tenant queue on
+  // a URL that looks like it belongs to one shop.
+  "/platform",
 ];
 
 export function proxy(request: NextRequest) {

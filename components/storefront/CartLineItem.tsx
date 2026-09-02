@@ -3,6 +3,7 @@ import { Trash2 } from "lucide-react";
 import { QuantityStepper } from "@/components/storefront/QuantityStepper";
 import { formatMoney } from "@/lib/currency";
 import { storefrontStockLabel } from "@/lib/design-tokens";
+import { preorderWaitText } from "@/lib/preorder";
 import type { CartLine } from "@/lib/cart";
 import { cn } from "@/lib/utils";
 
@@ -59,15 +60,23 @@ export function CartLineItem({ line, onQuantityChange, onRemove, onNavigate }: C
           </button>
         </div>
 
-        {line.stockStatus !== "in_stock" && (
-          <p
-            className={cn(
-              "mt-0.5 text-xs font-medium",
-              line.stockStatus === "out_of_stock" ? "text-red-700" : "text-amber-700",
-            )}
-          >
-            {storefrontStockLabel[line.stockStatus]}
+        {/* A preorder line says the wait, not just the label — the customer
+            has to keep seeing what they committed to right up to checkout. */}
+        {line.stockStatus === "preorder" ? (
+          <p className="mt-0.5 text-xs font-medium text-sky-700">
+            {preorderWaitText(line.preorderLeadTimeDays)}
           </p>
+        ) : (
+          line.stockStatus !== "in_stock" && (
+            <p
+              className={cn(
+                "mt-0.5 text-xs font-medium",
+                line.stockStatus === "out_of_stock" ? "text-red-700" : "text-amber-700",
+              )}
+            >
+              {storefrontStockLabel[line.stockStatus]}
+            </p>
+          )
         )}
 
         <div className="mt-2 flex items-center justify-between gap-2">

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { AdminSidebar } from "@/components/admin/AdminSidebar";
 import { AdminMobileNav } from "@/components/admin/AdminMobileNav";
+import { SubscriptionBanner } from "@/components/admin/SubscriptionBanner";
 import { getStoredToken } from "@/lib/auth";
 
 // Routes under (admin) that don't require a token. Update as more
@@ -67,6 +68,12 @@ export default function AdminLayout({
       <AdminSidebar />
       <div className="flex min-w-0 flex-1 flex-col">
         <AdminMobileNav />
+        {/* Above the content of every admin screen, not inside one: a lapsed
+            or overdue subscription is a fact about the whole app, and a
+            warning only visible on the page you happened to open is a warning
+            that arrives too late. Mounted inside the authed branch, so it
+            never fires a billing request from /login or /register. */}
+        <SubscriptionBanner />
         <main className="min-w-0 flex-1">{children}</main>
       </div>
     </div>

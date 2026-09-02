@@ -4,20 +4,16 @@ import Link from "next/link";
 import { Plus } from "lucide-react";
 import { useCart } from "@/components/storefront/CartProvider";
 import { formatMoney } from "@/lib/currency";
+import {
+  aggregatePreorderLeadTime,
+  aggregateStockStatus,
+  preorderWaitText,
+} from "@/lib/preorder";
 import { storefrontStockLabel, storefrontType } from "@/lib/design-tokens";
 import type { StorefrontListProduct, StorefrontProductVariant } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 type StockStatus = StorefrontProductVariant["stock_status"];
-
-// One status for the whole product: the best any variant has. An in-stock
-// variant means the customer can buy *something*, so the card shouldn't
-// read "sold out" just because one option is.
-function aggregateStockStatus(variants: StorefrontProductVariant[]): StockStatus {
-  if (variants.some((v) => v.stock_status === "in_stock")) return "in_stock";
-  if (variants.some((v) => v.stock_status === "low_stock")) return "low_stock";
-  return "out_of_stock";
-}
 
 function priceLabel(variants: StorefrontProductVariant[], currency: string | null): string {
   const prices = variants.map((v) => Number(v.selling_price));
@@ -26,10 +22,12 @@ function priceLabel(variants: StorefrontProductVariant[], currency: string | nul
   return min === max ? formatMoney(min, currency) : `from ${formatMoney(min, currency)}`;
 }
 
-// A pill over the image — amber for the low-stock nudge, a solid dark chip
-// for sold out (paired with the dimmed/desaturated image below).
+// A pill over the image — amber for the low-stock nudge, sky for preorder
+// (orderable, just later), a solid dark chip for sold out (paired with the
+// dimmed/desaturated image below).
 const STOCK_TAG_CLASS: Record<Exclude<StockStatus, "in_stock">, string> = {
   low_stock: "bg-amber-100 text-amber-900",
+  preorder: "bg-sky-100 text-sky-900",
   out_of_stock: "bg-storefront-ink text-storefront-bg",
 };
 
@@ -55,10 +53,14 @@ export function ProductCard({ product, currency, index = 0 }: ProductCardProps) 
     product.images[0] ?? product.variants.find((v) => v.images.length > 0)?.images[0];
   const status = aggregateStockStatus(product.variants);
   const isOutOfStock = status === "out_of_stock";
+  // The wait only exists for a product whose buyable options are all
+  // preorders; an in-stock product never advertises one.
+  const preorderWait =
+    status === "preorder" ? preorderWaitText(aggregatePreorderLeadTime(product.variants)) : null;
 
   // Quick-add only makes sense when there's a single variant and it's
   // buyable — anything with options sends the customer to the product page
-  // to choose first.
+  // to choose first. Preorder counts as buyable.
   const canQuickAdd =
     product.variants.length === 1 && firstVariant.stock_status !== "out_of_stock";
 
@@ -72,6 +74,8 @@ export function ProductCard({ product, currency, index = 0 }: ProductCardProps) 
         currency,
         imageUrl: (firstVariant.images[0] ?? cover)?.url ?? null,
         stockStatus: firstVariant.stock_status,
+        preorderLeadTimeDays: firstVariant.preorder_lead_time_days,
+        preorderRequiresPrepayment: firstVariant.preorder_requires_prepayment,
       },
       1,
     );
@@ -144,6 +148,9 @@ export function ProductCard({ product, currency, index = 0 }: ProductCardProps) 
             <span className="text-xs text-muted-foreground">{product.variants.length} options</span>
           )}
         </div>
+        {preorderWait && (
+          <span className="text-xs font-medium text-sky-700">{preorderWait}</span>
+        )}
       </div>
     </article>
   );

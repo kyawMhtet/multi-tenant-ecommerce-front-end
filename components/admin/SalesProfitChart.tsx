@@ -24,7 +24,9 @@ interface SalesProfitChartProps {
 }
 
 const chartConfig = {
-  revenue: { label: "Revenue", color: "var(--chart-1)" },
+  // "Sales", not "Revenue": this series is goods only — the backend moved
+  // delivery fees out of it, and they never appear in `daily` at all.
+  revenue: { label: "Sales", color: "var(--chart-1)" },
   cost: { label: "Cost", color: "var(--chart-2)" },
   profit: { label: "Profit", color: "var(--chart-3)" },
 } satisfies ChartConfig;

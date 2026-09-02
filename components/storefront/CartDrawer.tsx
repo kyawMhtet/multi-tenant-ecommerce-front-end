@@ -1,12 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { ShoppingBag } from "lucide-react";
+import { CalendarClock, ShoppingBag } from "lucide-react";
 import { ApiError } from "@/lib/api-client";
 import { useCreateOnlineOrder } from "@/lib/hooks/useCreateOnlineOrder";
 import { usePublicPaymentMethods } from "@/lib/hooks/usePublicPaymentMethods";
 import { usePublicShop } from "@/lib/hooks/usePublicShop";
 import { formatMoney } from "@/lib/currency";
+import { cartRequiresPrepayment, deliveryFeeFor } from "@/lib/cart";
+import { preorderWaitText } from "@/lib/preorder";
 import type { FulfillmentType } from "@/lib/types";
 import { storefrontType } from "@/lib/design-tokens";
 import { useCart } from "@/components/storefront/CartProvider";
@@ -24,6 +26,10 @@ import {
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+
+// The backend's own `method` key for cash on delivery — the one option a
+// prepaid preorder can't use, and the only method this file singles out.
+const COD_METHOD = "cod";
 
 const primaryButton = cn(
   storefrontType.navLabel,
@@ -78,8 +84,35 @@ export function CartDrawer() {
   // the hosted checkout" — the button must not flip back to an idle state in
   // that window, or it reads as though nothing happened.
   const [isRedirecting, setIsRedirecting] = useState(false);
+  // The server refused cash on delivery for this cart. Backstop for a line
+  // whose prepayment snapshot is stale (added before the shop turned the
+  // rule on, or before the field existed at all): without it the customer is
+  // handed back the same rejected option and invited to try it again.
+  const [codRejected, setCodRejected] = useState(false);
 
-  const methods = paymentMethods ?? [];
+  // Filtering cod out is the client's job and nobody else's: GET
+  // /public/payment-methods can't do it, because it doesn't know the cart.
+  // Advisory either way — the server rejects a prepaid preorder paid on
+  // delivery with a 422 regardless of what this list shows.
+  const offeredMethods = paymentMethods ?? [];
+  const hidesCod = cartRequiresPrepayment(lines) || codRejected;
+  const methods = hidesCod
+    ? offeredMethods.filter((m) => m.method !== COD_METHOD)
+    : offeredMethods;
+  // True only when the shop actually offers cod and this cart can't use it,
+  // so the explanation below never appears against an absence nobody noticed.
+  const codHidden = methods.length < offeredMethods.length;
+
+  // A cart may mix in-stock and preorder lines. The order ships as one
+  // parcel, so the schedule the customer is agreeing to is the slowest line's
+  // — and any line with no committed date drags the whole thing to "when
+  // stock arrives" rather than borrowing another line's number.
+  const preorderLines = lines.filter((line) => line.stockStatus === "preorder");
+  const hasPreorder = preorderLines.length > 0;
+  const slowestLeadTime = preorderLines.some((line) => line.preorderLeadTimeDays === null)
+    ? null
+    : preorderLines.reduce((slowest, line) => Math.max(slowest, line.preorderLeadTimeDays ?? 0), 0);
+  const mixesStockAndPreorder = hasPreorder && preorderLines.length < lines.length;
   const activeMethod = methods.find((m) => m.method === paymentMethod) ?? null;
 
   // What this shop actually offers. Empty while the shop is still loading,
@@ -94,6 +127,18 @@ export function CartDrawer() {
   // decides whether the address block shows.
   const onlyOption = fulfillmentOptions.length === 1 ? fulfillmentOptions[0] : null;
   const effectiveFulfillment = onlyOption ?? fulfillment;
+
+  // Every line in a cart comes from this one shop (see CartLine.currency), so
+  // the first line names the currency for the whole summary.
+  const currency = lines[0]?.currency ?? null;
+  // The fee is the shop's, but whether it applies is the customer's choice —
+  // pickup is always free, and an undecided choice bills as delivery so the
+  // total can only fall once they pick, never rise after they've read it.
+  const deliveryFee = deliveryFeeFor(effectiveFulfillment, shop?.delivery_fee);
+  // A pickup-only shop has no delivery line to show, and neither does one
+  // whose profile hasn't loaded yet — a Total that appears at the subtotal
+  // and then climbs is the exact thing this block exists to avoid.
+  const showsDelivery = Boolean(shop?.allows_delivery);
 
   // Preselect the shop's first method once the list arrives, and drop a
   // selection that no longer exists (the shop turned it off mid-session).
@@ -145,6 +190,7 @@ export function CartDrawer() {
       setPaymentProof(null);
       setIsRedirecting(false);
       setFulfillment(null);
+      setCodRejected(false);
       createOrder.reset();
     }
   }
@@ -238,6 +284,13 @@ export function CartDrawer() {
       }
 
       const validation = err.errors ?? {};
+      // A prepaid preorder paid on delivery lands here — the rule the client
+      // mirrors above, enforced for real. Recorded rather than just reported,
+      // so the picker below re-renders without the option that was just
+      // rejected instead of offering it again for a second identical failure.
+      if (err.status === 422 && validation.payment_method && paymentMethod === COD_METHOD) {
+        setCodRejected(true);
+      }
       if (validation.fulfillment_type) {
         // The shop changed what it offers between this drawer opening and
         // this submit. Refetching is what unsticks the customer: the toggle
@@ -340,15 +393,64 @@ export function CartDrawer() {
             </div>
 
             <div className="flex max-h-[60%] shrink-0 flex-col gap-3 overflow-y-auto border-t border-black/10 p-4">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Subtotal</span>
-                <span className="text-base font-semibold tabular-nums text-storefront-ink">
-                  {/* Every line in a cart comes from this one shop (see
-                      CartLine.currency), so the first line names the
-                      subtotal's currency. */}
-                  {formatMoney(subtotal, lines[0]?.currency ?? null)}
-                </span>
+              <div className="flex flex-col gap-1.5">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Subtotal</span>
+                  <span
+                    className={cn(
+                      "tabular-nums text-storefront-ink",
+                      // Without a delivery line below it, the subtotal is the
+                      // total — and carries the weight the total would have.
+                      !showsDelivery && "text-base font-semibold",
+                    )}
+                  >
+                    {formatMoney(subtotal, currency)}
+                  </span>
+                </div>
+
+                {showsDelivery && (
+                  <>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">Delivery</span>
+                      <span className="tabular-nums text-storefront-ink">
+                        {effectiveFulfillment === "pickup"
+                          ? "Free — pickup"
+                          : deliveryFee > 0
+                            ? formatMoney(deliveryFee, currency)
+                            : "Free"}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between border-t border-black/10 pt-2 text-sm">
+                      <span className="font-medium text-storefront-ink">Total</span>
+                      <span className="text-base font-semibold tabular-nums text-storefront-ink">
+                        {formatMoney(subtotal + deliveryFee, currency)}
+                      </span>
+                    </div>
+
+                    {/* Only while the choice is genuinely still open, and only
+                        when there's a fee to lose by picking pickup. */}
+                    {effectiveFulfillment === null && deliveryFee > 0 && (
+                      <p className="text-xs text-muted-foreground">
+                        Includes delivery — choose pickup below and it comes off.
+                      </p>
+                    )}
+                  </>
+                )}
               </div>
+
+              {hasPreorder && (
+                <div className="flex items-start gap-2.5 rounded-xl bg-sky-50 px-3.5 py-3 text-sm text-sky-900">
+                  <CalendarClock className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+                  <span>
+                    <span className="font-medium">{preorderWaitText(slowestLeadTime)}</span>
+                    <br />
+                    {mixesStockAndPreorder
+                      ? "Your order includes a preorder item, so it all ships together once that arrives."
+                      : "This is a preorder — it ships once your items are ready."}
+                  </span>
+                </div>
+              )}
 
               {shopError ? (
                 <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
@@ -433,12 +535,32 @@ export function CartDrawer() {
                 // must not read the same to a customer.
                 <div className="h-11 animate-pulse rounded-xl bg-muted" />
               ) : methods.length === 0 ? (
-                <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                  This shop isn&apos;t accepting online payments right now. Contact them directly
-                  to order.
-                </p>
+                codHidden ? (
+                  // The shop's only method was cash on delivery, and this cart
+                  // can't use it. Naming the way out matters — the customer can
+                  // drop the preorder line and pay on delivery for the rest.
+                  <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                    Preorder items must be paid in advance, and this shop only takes cash on
+                    delivery. Remove the preorder item to order the rest, or contact the shop
+                    directly.
+                  </p>
+                ) : (
+                  <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                    This shop isn&apos;t accepting online payments right now. Contact them
+                    directly to order.
+                  </p>
+                )
               ) : (
                 <>
+                  {/* Above the list, not below it: it explains an absence, and
+                      an explanation that arrives after the customer has already
+                      hunted for the missing option is too late to help. */}
+                  {codHidden && (
+                    <p className="rounded-xl bg-sky-50 px-3.5 py-3 text-sm text-sky-900">
+                      Preorder items must be paid in advance, so cash on delivery isn&apos;t
+                      available for this order.
+                    </p>
+                  )}
                   <PaymentMethodPicker
                     methods={methods}
                     selected={paymentMethod}

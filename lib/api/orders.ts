@@ -1,11 +1,15 @@
 import { apiFetch } from "@/lib/api-client";
 import type {
   ApiResource,
+  CancelOrderPayload,
+  CancellationReason,
+  DispatchOrderPayload,
   OnlineOrderPaymentAction,
   OnlineOrderResult,
   Order,
   OrderFilterParams,
   PaginatedResponse,
+  RefundOrderPayload,
   StoreOnlineOrderPayload,
   StoreOrderPayload,
   UpdateOrderPayload,
@@ -117,6 +121,58 @@ export function updateOrder(
 ): Promise<Order> {
   return apiFetch<ApiResource<Order>>(`/api/v1/orders/${id}`, {
     method: "PATCH",
+    body: JSON.stringify(payload),
+  }).then((res) => res.data);
+}
+
+// The picker's options. A backend-owned list that has already grown twice,
+// so it's fetched rather than mirrored here — a stale client-side copy
+// would quietly stop offering whatever was added last.
+export function getCancellationReasons(): Promise<CancellationReason[]> {
+  return apiFetch<ApiResource<CancellationReason[]>>(
+    "/api/v1/orders/cancellation-reasons",
+  ).then((res) => res.data);
+}
+
+// Cancelling is its own endpoint, not a status write: the reason is
+// required, and PATCH /orders/{id} rejects status "cancelled" outright now.
+export function cancelOrder(
+  id: number | string,
+  payload: CancelOrderPayload,
+): Promise<Order> {
+  return apiFetch<ApiResource<Order>>(`/api/v1/orders/${id}/cancel`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  }).then((res) => res.data);
+}
+
+// Handing the parcel to a courier. Deliberately does NOT touch the order's
+// status: a cash-on-delivery order is dispatched while still unpaid, and
+// collapsing the two would make "sent" unrepresentable for half the orders
+// that need it.
+//
+// Re-dispatching an already-sent order is allowed and overwrites the
+// courier/tracking — parcels get lost and re-sent, and the shop needs to be
+// able to say so. 422 for a pickup order or a cancelled one.
+export function dispatchOrder(
+  id: number | string,
+  payload: DispatchOrderPayload,
+): Promise<Order> {
+  return apiFetch<ApiResource<Order>>(`/api/v1/orders/${id}/dispatch`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  }).then((res) => res.data);
+}
+
+// The shop recording that they've sent the customer's money back. Nothing
+// moves money here — the transfer happened outside the platform, and this
+// is the receipt of it. 422 if the order was never paid.
+export function refundOrder(
+  id: number | string,
+  payload: RefundOrderPayload = {},
+): Promise<Order> {
+  return apiFetch<ApiResource<Order>>(`/api/v1/orders/${id}/refund`, {
+    method: "POST",
     body: JSON.stringify(payload),
   }).then((res) => res.data);
 }

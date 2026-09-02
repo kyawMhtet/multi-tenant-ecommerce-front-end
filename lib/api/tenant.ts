@@ -62,6 +62,15 @@ export function updateTenant(payload: UpdateTenantPayload): Promise<Tenant> {
     });
   }
 
+  if (payload.timezone !== undefined) formData.append("timezone", payload.timezone);
+
+  // Deliberately NOT sent as "" when cleared, unlike the text fields above:
+  // ConvertEmptyStringsToNull would turn that into null and fail the
+  // `numeric` rule. "0" is how a shop goes back to free delivery.
+  if (payload.delivery_fee !== undefined) {
+    formData.append("delivery_fee", payload.delivery_fee);
+  }
+
   // "1"/"0" rather than "true"/"false": multipart carries strings only, and
   // these are the two Laravel's `boolean` rule accepts.
   if (payload.allows_delivery !== undefined) {

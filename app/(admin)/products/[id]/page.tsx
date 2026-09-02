@@ -4,7 +4,6 @@ import { use, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Layers } from "lucide-react";
 import { toast } from "sonner";
-import { ApiError } from "@/lib/api-client";
 import { getStoredTenantSlug } from "@/lib/auth";
 import { useProduct } from "@/lib/hooks/useProduct";
 import { useUpdateProduct } from "@/lib/hooks/useUpdateProduct";
@@ -13,12 +12,16 @@ import { PageContainer } from "@/components/shared/PageContainer";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { TableCard } from "@/components/shared/TableCard";
 import { EmptyState } from "@/components/shared/EmptyState";
-import { ErrorState } from "@/components/shared/ErrorState";
+import { ApiErrorState } from "@/components/shared/ApiErrorState";
 import { TableSkeleton } from "@/components/shared/TableSkeleton";
 import { ProductForm, type ProductFormState } from "@/components/admin/ProductForm";
 import { VariantDialog } from "@/components/admin/VariantDialog";
 import { EditVariantDialog } from "@/components/admin/EditVariantDialog";
 import { RestockDialog } from "@/components/admin/RestockDialog";
+import { BackorderBadge } from "@/components/admin/BackorderBadge";
+import { backorderedUnits } from "@/lib/stock";
+import { controls } from "@/lib/design-tokens";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -81,12 +84,12 @@ function EditProductSkeleton() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="pl-4">Name</TableHead>
+              <TableHead>Name</TableHead>
               <TableHead>SKU</TableHead>
               <TableHead>Price</TableHead>
               <TableHead>Stock</TableHead>
               <TableHead />
-              <TableHead className="pr-4" />
+              <TableHead />
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -109,11 +112,6 @@ export default function EditProductPage({
   const { data: product, error: loadErrorObj } = useProduct(id);
   const updateProduct = useUpdateProduct();
 
-  const loadError = loadErrorObj
-    ? loadErrorObj instanceof ApiError
-      ? loadErrorObj.message
-      : "Could not load product."
-    : null;
 
   const [form, setForm] = useState<ProductFormState | null>(null);
   const [errors, setErrors] = useState<Partial<Record<keyof ProductFormState, string>>>({});
@@ -205,18 +203,13 @@ export default function EditProductPage({
     }
   }
 
-  const submitError = updateProduct.error
-    ? updateProduct.error instanceof ApiError
-      ? updateProduct.error.message
-      : "Something went wrong. Please try again."
-    : null;
 
-  if (loadError) {
+  if (loadErrorObj) {
     return (
       <PageContainer size="lg">
         <div className="flex flex-col gap-6">
           <PageHeader title="Edit product" backHref="/products" backLabel="Back to products" />
-          <ErrorState message={loadError} />
+          <ApiErrorState error={loadErrorObj} fallback="Could not load product." />
         </div>
       </PageContainer>
     );
@@ -254,9 +247,12 @@ export default function EditProductPage({
                   showActiveToggle
                 />
 
-                {submitError && <ErrorState message={submitError} />}
+                <ApiErrorState
+                  error={updateProduct.error}
+                  fallback="Something went wrong. Please try again."
+                />
 
-                <Button type="submit" disabled={updateProduct.isPending} className="w-fit">
+                <Button type="submit" disabled={updateProduct.isPending} className={cn(controls.button, "w-fit")}>
                   {updateProduct.isPending ? "Saving..." : "Save changes"}
                 </Button>
               </form>
@@ -276,18 +272,18 @@ export default function EditProductPage({
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="pl-4">Name</TableHead>
+                  <TableHead>Name</TableHead>
                   <TableHead>SKU</TableHead>
                   <TableHead>Price</TableHead>
                   <TableHead>Stock</TableHead>
                   <TableHead />
-                  <TableHead className="pr-4" />
+                  <TableHead />
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {product.variants.map((variant) => (
                   <TableRow key={variant.id}>
-                    <TableCell className="py-3.5 pl-4 font-medium">
+                    <TableCell className="font-medium">
                       <span className="flex items-center gap-2.5">
                         {variant.images.length > 0 && (
                           // eslint-disable-next-line @next/next/no-img-element -- external per-tenant image host, next/image doesn't apply
@@ -301,12 +297,20 @@ export default function EditProductPage({
                         {variant.variant_name ?? "—"}
                       </span>
                     </TableCell>
-                    <TableCell className="py-3.5 text-muted-foreground">{variant.sku}</TableCell>
-                    <TableCell className="py-3.5 tabular-nums">
+                    <TableCell className="text-muted-foreground">{variant.sku}</TableCell>
+                    <TableCell className="tabular-nums">
                       {priceFormatter.format(Number(variant.selling_price))}
                     </TableCell>
-                    <TableCell className="py-3.5 tabular-nums">{Number(variant.current_stock)}</TableCell>
-                    <TableCell className="py-3.5">
+                    <TableCell>
+                      <div className="flex flex-wrap items-center gap-2">
+                        {/* Shown as-is, negatives included: -7 is what the
+                            shop sold past zero, and rounding it up to 0
+                            would hide the seven units it owes. */}
+                        <span className="tabular-nums">{Number(variant.current_stock)}</span>
+                        <BackorderBadge units={backorderedUnits(variant.current_stock)} />
+                      </div>
+                    </TableCell>
+                    <TableCell>
                       <div className="flex items-center gap-3">
                         <EditVariantDialog productId={id} variant={variant} />
                         {/* Restocking a track_stock: false variant is a
@@ -318,7 +322,7 @@ export default function EditProductPage({
                         )}
                       </div>
                     </TableCell>
-                    <TableCell className="py-3.5 pr-4 text-right">
+                    <TableCell className="text-right">
                       {!variant.slug ? (
                         <span className="text-muted-foreground">No link</span>
                       ) : storefrontUrl(variant.slug) ? (

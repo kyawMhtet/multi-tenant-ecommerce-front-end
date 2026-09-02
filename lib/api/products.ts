@@ -11,6 +11,31 @@ import type {
   UpdateVariantPayload,
 } from "@/lib/types";
 
+/**
+ * The preorder pair, encoded once for all three endpoints that accept it.
+ *
+ * `prefix` is "" for the variant routes and "variant[...]" for the nested
+ * block on POST /products. Booleans go as "1"/"0" (what Laravel's `boolean`
+ * rule accepts over multipart), and a null lead time goes as "" —
+ * ConvertEmptyStringsToNull turns that back into null server-side, which is
+ * the only way to express "no estimate" on this transport.
+ */
+function appendPreorderFields(
+  formData: FormData,
+  payload: { allow_preorder?: boolean; preorder_lead_time_days?: number | null },
+  key: (field: string) => string = (field) => field,
+): void {
+  if (payload.allow_preorder !== undefined) {
+    formData.append(key("allow_preorder"), payload.allow_preorder ? "1" : "0");
+  }
+  if (payload.preorder_lead_time_days !== undefined) {
+    formData.append(
+      key("preorder_lead_time_days"),
+      payload.preorder_lead_time_days === null ? "" : String(payload.preorder_lead_time_days),
+    );
+  }
+}
+
 export interface ProductsPageParams {
   page?: number;
   per_page?: number;
@@ -68,6 +93,7 @@ export function createProduct(payload: StoreProductPayload): Promise<Product> {
   formData.append("variant[selling_price]", String(payload.variant.selling_price));
   formData.append("variant[unit]", payload.variant.unit);
   formData.append("variant[current_stock]", String(payload.variant.current_stock));
+  appendPreorderFields(formData, payload.variant, (field) => `variant[${field}]`);
   payload.images?.forEach((file) => formData.append("images[]", file));
 
   return apiFetch<ApiResource<Product>>("/api/v1/products", {
@@ -143,6 +169,7 @@ export function addVariant(
   if (payload.current_stock !== undefined) {
     formData.append("current_stock", String(payload.current_stock));
   }
+  appendPreorderFields(formData, payload);
   payload.images?.forEach((file) => formData.append("images[]", file));
 
   return apiFetch<ApiResource<ProductVariant>>(`/api/v1/products/${productId}/variants`, {
@@ -191,6 +218,7 @@ export function updateVariant(
   if (payload.is_active !== undefined) {
     formData.append("is_active", payload.is_active ? "1" : "0");
   }
+  appendPreorderFields(formData, payload);
   payload.images?.forEach((file) => formData.append("images[]", file));
   payload.remove_image_ids?.forEach((imageId) =>
     formData.append("remove_image_ids[]", String(imageId)),

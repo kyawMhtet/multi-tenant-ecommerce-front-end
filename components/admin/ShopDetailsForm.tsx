@@ -3,7 +3,7 @@
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { typography } from "@/lib/design-tokens";
+import { controls, typography } from "@/lib/design-tokens";
 
 /**
  * Keyed by the API's own snake_case field names rather than this app's
@@ -58,8 +58,10 @@ export function ShopDetailsForm({
         <Input
           type="text"
           maxLength={255}
+          placeholder="Aung Shop"
           value={form.name}
           onChange={(e) => onFieldChange("name", e.target.value)}
+          className={controls.input}
         />
         {errors.name && <span className="text-sm text-destructive">{errors.name}</span>}
       </Label>
@@ -72,6 +74,7 @@ export function ShopDetailsForm({
           placeholder="Where customers can find you"
           value={form.address}
           onChange={(e) => onFieldChange("address", e.target.value)}
+          className={controls.textarea}
         />
         {errors.address && <span className="text-sm text-destructive">{errors.address}</span>}
       </Label>
@@ -85,6 +88,7 @@ export function ShopDetailsForm({
             placeholder="09123456789"
             value={form.business_phone}
             onChange={(e) => onFieldChange("business_phone", e.target.value)}
+            className={controls.input}
           />
           {errors.business_phone && (
             <span className="text-sm text-destructive">{errors.business_phone}</span>
@@ -102,6 +106,7 @@ export function ShopDetailsForm({
             spellCheck={false}
             value={form.business_email}
             onChange={(e) => onFieldChange("business_email", e.target.value)}
+            className={controls.input}
           />
           {errors.business_email && (
             <span className="text-sm text-destructive">{errors.business_email}</span>

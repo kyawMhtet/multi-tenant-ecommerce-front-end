@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { LayoutDashboard, Package, ShoppingCart, ReceiptText, BarChart3, Wallet, Settings, LogOut } from "lucide-react";
+import { LayoutDashboard, Package, ShoppingCart, ReceiptText, BarChart3, Wallet, CreditCard, Settings, LogOut } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -20,16 +20,35 @@ import {
 } from "@/lib/auth";
 import { NotificationBell } from "@/components/admin/NotificationBell";
 import { initials } from "@/lib/initials";
+import { typography } from "@/lib/design-tokens";
 import { cn } from "@/lib/utils";
 
-const NAV_LINKS = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/products", label: "Products", icon: Package },
-  { href: "/pos", label: "POS", icon: ShoppingCart },
-  { href: "/orders", label: "Orders", icon: ReceiptText },
-  { href: "/payments", label: "Payments", icon: Wallet },
-  { href: "/reports", label: "Reports", icon: BarChart3 },
-];
+// Grouped, because a flat run of six links gives the eye nothing to hold
+// onto. "Sell" is what staff touch during a shift; "Manage" is what an
+// owner touches between them.
+const NAV_SECTIONS = [
+  {
+    label: "Sell",
+    links: [
+      { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+      { href: "/pos", label: "POS", icon: ShoppingCart },
+      { href: "/orders", label: "Orders", icon: ReceiptText },
+    ],
+  },
+  {
+    label: "Manage",
+    links: [
+      { href: "/products", label: "Products", icon: Package },
+      { href: "/payments", label: "Payments", icon: Wallet },
+      { href: "/reports", label: "Reports", icon: BarChart3 },
+      // A top-level link rather than something buried in the account menu,
+      // because the shop that most needs to reach it is the one that has
+      // gone read-only — and every prompt this app shows for a 402 points
+      // here.
+      { href: "/settings/billing", label: "Billing", icon: CreditCard },
+    ],
+  },
+] as const;
 
 // Shared between the desktop <aside> and the mobile Sheet drawer — same
 // tenant block, nav links, and account menu either way. onNavigate closes
@@ -64,42 +83,51 @@ function SidebarNav({
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center gap-2.5 px-5 py-5">
-        <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary text-sm font-semibold text-primary-foreground">
+      <div className="flex items-center gap-3 border-b px-4 py-4">
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary text-sm font-semibold text-primary-foreground">
           {tenant ? initials(tenant.name) : "…"}
         </div>
-        <p className="min-w-0 flex-1 truncate text-sm font-semibold tracking-tight">
-          {tenant?.name ?? "Loading…"}
-        </p>
+        <div className="flex min-w-0 flex-1 flex-col">
+          <p className="truncate text-sm font-semibold tracking-tight">
+            {tenant?.name ?? "Loading…"}
+          </p>
+          <p className="truncate text-xs text-muted-foreground">Shop admin</p>
+        </div>
         {showBell && <NotificationBell />}
       </div>
 
-      <nav className="flex flex-1 flex-col gap-0.5 px-3">
-        {NAV_LINKS.map((link) => {
-          const Icon = link.icon;
-          const isActive = pathname === link.href || pathname.startsWith(`${link.href}/`);
-          return (
-            <Link
-              key={link.href}
-              href={link.href}
-              onClick={onNavigate}
-              className={cn(
-                "flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors",
-                isActive
-                  ? "bg-primary/10 font-medium text-primary"
-                  : "text-muted-foreground hover:bg-muted hover:text-foreground",
-              )}
-            >
-              <Icon className="size-4" />
-              {link.label}
-            </Link>
-          );
-        })}
+      <nav className="flex flex-1 flex-col gap-5 overflow-y-auto px-3 py-4">
+        {NAV_SECTIONS.map((section) => (
+          <div key={section.label} className="flex flex-col gap-1">
+            <p className={cn(typography.microLabel, "px-3 pb-1")}>{section.label}</p>
+            {section.links.map((link) => {
+              const Icon = link.icon;
+              const isActive = pathname === link.href || pathname.startsWith(`${link.href}/`);
+              return (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  onClick={onNavigate}
+                  aria-current={isActive ? "page" : undefined}
+                  className={cn(
+                    "flex h-10 items-center gap-3 rounded-xl px-3 text-sm transition-colors",
+                    isActive
+                      ? "bg-primary/10 font-medium text-primary"
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                  )}
+                >
+                  <Icon className={cn("size-4.5", !isActive && "opacity-80")} strokeWidth={2} />
+                  {link.label}
+                </Link>
+              );
+            })}
+          </div>
+        ))}
       </nav>
 
       <div className="border-t p-3">
         <DropdownMenu>
-          <DropdownMenuTrigger className="flex w-full items-center gap-2.5 rounded-lg p-2 text-left text-sm transition-colors hover:bg-muted">
+          <DropdownMenuTrigger className="flex w-full items-center gap-3 rounded-xl p-2 text-left text-sm transition-colors hover:bg-muted">
             <Avatar size="sm">
               <AvatarFallback className="bg-muted font-medium">
                 {userName ? initials(userName) : "?"}

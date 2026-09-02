@@ -6,7 +6,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { DAY_LABELS } from "@/lib/shop-profile";
-import { typography } from "@/lib/design-tokens";
+import { controls, typography } from "@/lib/design-tokens";
 import { cn } from "@/lib/utils";
 import {
   BUSINESS_HOURS_DAYS,
@@ -121,7 +121,7 @@ export function BusinessHoursEditor({ value, onChange, errors = {} }: BusinessHo
                     <div className="flex flex-wrap items-center gap-2">
                       <Input
                         type="time"
-                        className="w-32"
+                        className={cn(controls.input, "w-32")}
                         aria-label={`${dayLabel} ${position} opening time`}
                         value={interval.open}
                         onChange={(e) => updateInterval(day, index, { open: e.target.value })}
@@ -129,7 +129,7 @@ export function BusinessHoursEditor({ value, onChange, errors = {} }: BusinessHo
                       <span className={typography.muted}>to</span>
                       <Input
                         type="time"
-                        className="w-32"
+                        className={cn(controls.input, "w-32")}
                         aria-label={`${dayLabel} ${position} closing time`}
                         value={interval.close}
                         onChange={(e) => updateInterval(day, index, { close: e.target.value })}
@@ -157,8 +157,7 @@ export function BusinessHoursEditor({ value, onChange, errors = {} }: BusinessHo
                 <Button
                   type="button"
                   variant="ghost"
-                  size="sm"
-                  className="w-fit"
+                  className={cn(controls.buttonSm, "w-fit")}
                   onClick={() => addInterval(day)}
                 >
                   <Plus />

@@ -25,8 +25,15 @@ import { OrderReceiptPrint } from "@/components/admin/OrderReceiptPrint";
 import { OrderItemLabel } from "@/components/admin/OrderItemLabel";
 import { OrderPaymentPanel } from "@/components/admin/OrderPaymentPanel";
 import { OrderFulfillmentPanel } from "@/components/admin/OrderFulfillmentPanel";
+import { OrderDispatchPanel } from "@/components/admin/OrderDispatchPanel";
+import { OrderCancellationPanel } from "@/components/admin/OrderCancellationPanel";
+import { OrderRefundPanel } from "@/components/admin/OrderRefundPanel";
+import { CancelOrderDialog } from "@/components/admin/CancelOrderDialog";
+import { OrderPreorderNotice } from "@/components/admin/OrderPreorderNotice";
+import { PreorderBadge } from "@/components/admin/PreorderBadge";
 import { formatCurrency, formatQuantity } from "@/lib/currency";
-import { orderStatusClassName } from "@/lib/design-tokens";
+import { hasDeliveryLine } from "@/lib/order-items";
+import { controls, orderStatusClassName, refundOwedClassName } from "@/lib/design-tokens";
 import { cn } from "@/lib/utils";
 
 const dateFormatter = new Intl.DateTimeFormat(undefined, {
@@ -55,10 +62,10 @@ function OrderDetailSkeleton() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="pl-4">Item</TableHead>
+              <TableHead>Item</TableHead>
               <TableHead className="text-right">Qty</TableHead>
               <TableHead className="text-right">Price</TableHead>
-              <TableHead className="pr-4 text-right">Total</TableHead>
+              <TableHead className="text-right">Total</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -136,8 +143,16 @@ export default function OrderDetailPage({
                 >
                   {order.status}
                 </Badge>
+                {/* Alongside the status, not instead of it: the order is
+                    cancelled *and* the shop owes money on it. */}
+                {order.refund_required && !order.refunded_at && (
+                  <Badge variant="outline" className={refundOwedClassName}>
+                    Refund owed
+                  </Badge>
+                )}
+                {order.has_preorder_items && <PreorderBadge />}
                 {isPaid && (
-                  <Button type="button" variant="outline" size="sm" onClick={() => window.print()}>
+                  <Button type="button" variant="outline" onClick={() => window.print()} className={controls.buttonSm}>
                     <Printer data-icon="inline-start" className="size-4" />
                     Print receipt
                   </Button>
@@ -154,31 +169,45 @@ export default function OrderDetailPage({
             </p>
           )}
 
+          {/* When the order can actually be handed over — for a preorder
+              that's the whole question, and it's the first thing staff are
+              asked on the phone. */}
+          <OrderPreorderNotice order={order} />
+
+          {/* Why it was cancelled, then what that leaves the shop owing —
+              both above the order lines, because both change what staff do
+              with everything below them. */}
+          <OrderCancellationPanel order={order} />
+          <OrderRefundPanel order={order} />
+
           <OrderFulfillmentPanel order={order} />
+
+          {/* Directly under the address: where it goes, then who took it. */}
+          <OrderDispatchPanel order={order} />
 
           <TableCard>
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="pl-4">Item</TableHead>
+                  <TableHead>Item</TableHead>
                   <TableHead className="text-right">Qty</TableHead>
                   <TableHead className="text-right">Price</TableHead>
-                  <TableHead className="pr-4 text-right">Total</TableHead>
+                  <TableHead className="text-right">Total</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {order.items.map((item) => (
                   <TableRow key={item.id}>
-                    <TableCell className="py-3.5 pl-4 align-top font-medium">
+                    <TableCell className="align-top font-medium">
                       <OrderItemLabel item={item} />
                     </TableCell>
-                    <TableCell className="py-3.5 text-right align-top tabular-nums">
+                    <TableCell className="text-right align-top tabular-nums">
                       {formatQuantity(item.quantity)}
                     </TableCell>
-                    <TableCell className="py-3.5 text-right align-top tabular-nums">
+                    <TableCell className="text-right align-top tabular-nums">
                       {formatCurrency(item.unit_price, order.currency)}
                     </TableCell>
-                    <TableCell className="py-3.5 pr-4 text-right align-top tabular-nums">
+                    <TableCell className="text-right align-top tabular-nums">
                       {formatCurrency(item.line_total, order.currency)}
                     </TableCell>
                   </TableRow>
@@ -206,6 +235,17 @@ export default function OrderDetailPage({
                 <span className="tabular-nums">{formatCurrency(order.tax_amount, order.currency)}</span>
               </div>
             )}
+            {/* Already inside `total` — displayed, never added to anything.
+                Shown at 0.00 too on a delivery order, which is how the
+                customer sees that delivery was free rather than missing. */}
+            {hasDeliveryLine(order) && (
+              <div className="flex justify-between gap-8 text-muted-foreground">
+                <span>Delivery</span>
+                <span className="tabular-nums">
+                  {formatCurrency(order.delivery_fee ?? "0", order.currency)}
+                </span>
+              </div>
+            )}
             <div className="flex justify-between gap-8 border-t pt-1.5 text-base font-semibold">
               <span>Total</span>
               <span className="tabular-nums">{formatCurrency(order.total, order.currency)}</span>
@@ -217,6 +257,11 @@ export default function OrderDetailPage({
               here rather than on its own screen — the screenshot it's
               judged against is right above it. */}
           <OrderPaymentPanel order={order} />
+
+          {/* Last, and quiet: cancelling is the one irreversible thing on
+              this screen, so it sits below everything the shop should read
+              first rather than beside "Print receipt" in the header. */}
+          <CancelOrderDialog order={order} />
         </div>
       </PageContainer>
 

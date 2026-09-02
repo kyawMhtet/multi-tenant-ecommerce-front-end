@@ -11,12 +11,27 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import type { SalesProfitReportParams } from "@/lib/types";
+import { controls } from "@/lib/design-tokens";
+import { cn } from "@/lib/utils";
+
+// Structurally what both callers want — SalesProfitReportParams on the
+// reports screen, the date half of OrderFilterParams on the orders list —
+// so the picker doesn't have to know which screen it's on. An empty object
+// means "no range", which is how Clear reports itself.
+export interface DateRangeValue {
+  date_from?: string;
+  date_to?: string;
+}
 
 interface DateRangePickerProps {
   dateFrom?: string;
   dateTo?: string;
-  onApply: (range: SalesProfitReportParams) => void;
+  onApply: (range: DateRangeValue) => void;
+  // What the trigger reads with no range set. The reports screen defaults
+  // to the current month server-side, so "This month" is the truth there;
+  // the orders list applies no date filter at all, where the same words
+  // would be a lie.
+  emptyLabel?: string;
 }
 
 function rangeFromProps(dateFrom?: string, dateTo?: string): DateRange | undefined {
@@ -24,7 +39,12 @@ function rangeFromProps(dateFrom?: string, dateTo?: string): DateRange | undefin
   return { from: parseISO(dateFrom), to: parseISO(dateTo) };
 }
 
-export function DateRangePicker({ dateFrom, dateTo, onApply }: DateRangePickerProps) {
+export function DateRangePicker({
+  dateFrom,
+  dateTo,
+  onApply,
+  emptyLabel = "This month",
+}: DateRangePickerProps) {
   const [open, setOpen] = useState(false);
   const [pendingRange, setPendingRange] = useState<DateRange | undefined>(
     rangeFromProps(dateFrom, dateTo),
@@ -56,11 +76,13 @@ export function DateRangePicker({ dateFrom, dateTo, onApply }: DateRangePickerPr
   const label =
     dateFrom && dateTo
       ? `${format(parseISO(dateFrom), "MMM d, yyyy")} – ${format(parseISO(dateTo), "MMM d, yyyy")}`
-      : "This month";
+      : emptyLabel;
 
   return (
     <Popover open={open} onOpenChange={handleOpenChange}>
-      <PopoverTrigger render={<Button type="button" variant="outline" size="sm" />}>
+      <PopoverTrigger
+        render={<Button type="button" variant="outline" className={cn(controls.button, "font-normal")} />}
+      >
         <CalendarIcon className="size-4" />
         {label}
       </PopoverTrigger>
@@ -74,22 +96,22 @@ export function DateRangePicker({ dateFrom, dateTo, onApply }: DateRangePickerPr
             defaultMonth={pendingRange?.from}
           />
           <div className="flex items-center justify-end gap-2 border-t p-2.5">
-            <Button type="button" variant="ghost" size="sm" onClick={handleClear}>
+            <Button type="button" variant="ghost" onClick={handleClear} className={controls.buttonSm}>
               Clear
             </Button>
             <Button
               type="button"
               variant="outline"
-              size="sm"
               onClick={() => setOpen(false)}
+              className={controls.buttonSm}
             >
               Cancel
             </Button>
             <Button
               type="button"
-              size="sm"
               disabled={!pendingRange?.from || !pendingRange?.to}
               onClick={handleApply}
+              className={controls.buttonSm}
             >
               Apply
             </Button>

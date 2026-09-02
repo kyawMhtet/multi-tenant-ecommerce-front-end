@@ -17,6 +17,9 @@ export interface AuthFieldProps extends React.ComponentProps<"input"> {
   hint?: React.ReactNode;
 }
 
+// In shared/ rather than admin/ because the platform staff console signs in
+// with the same field (see app/(platform)/platform/login) — a second identity
+// on a second login screen, but the same control.
 export function AuthField({ label, error, hint, className, type, ...props }: AuthFieldProps) {
   const [showPassword, setShowPassword] = useState(false);
   const isPassword = type === "password";

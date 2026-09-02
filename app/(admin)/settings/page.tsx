@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/shared/PageHeader";
 import { LoadingState } from "@/components/shared/LoadingState";
 import { ErrorState } from "@/components/shared/ErrorState";
 import { ShopProfileForm } from "@/components/admin/ShopProfileForm";
+import { DeliveryProvidersSection } from "@/components/admin/DeliveryProvidersSection";
 
 export default function SettingsPage() {
   const { data: tenant, isPending, error: queryError } = useTenant();
@@ -35,6 +36,12 @@ export default function SettingsPage() {
             is loaded — the form seeds itself from this prop and then owns
             every field, rather than re-deriving them on each refetch. */}
         {tenant && <ShopProfileForm tenant={tenant} />}
+
+        {/* Outside the profile form on purpose: couriers are their own
+            endpoints with their own saves, and nesting this section's form
+            inside that one would be invalid HTML. It loads independently,
+            so it renders even while the tenant is still coming back. */}
+        <DeliveryProvidersSection />
 
       </div>
     </PageContainer>

@@ -1,4 +1,4 @@
-import type { StorefrontProductVariant } from "@/lib/types";
+import type { FulfillmentType, StorefrontProductVariant } from "@/lib/types";
 
 type StockStatus = StorefrontProductVariant["stock_status"];
 
@@ -26,6 +26,18 @@ export interface CartLine {
   imageUrl: string | null;
   quantity: number;
   stockStatus: StockStatus;
+  // Snapshotted alongside stockStatus so the drawer can repeat the wait the
+  // customer was shown when they added the line, without refetching each
+  // product. Null for anything that isn't a preorder.
+  preorderLeadTimeDays: number | null;
+  // Whether this preorder has to be paid up front — what removes cash-on-
+  // delivery from checkout. Null for anything that isn't a preorder, and
+  // also null on a line saved before this field existed, which is why
+  // cartRequiresPrepayment() tests for `true` rather than truthiness: an
+  // unknown must not be read as a demand for money the shop never made.
+  // A stale snapshot is only ever advisory anyway — the server refuses cod
+  // on a prepaid preorder with a 422 regardless of what the cart thinks.
+  preorderRequiresPrepayment: boolean | null;
 }
 
 function isCartLine(value: unknown): value is CartLine {
@@ -47,13 +59,19 @@ export function readStoredCart(): CartLine[] {
     if (!raw) return [];
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    // `currency` is deliberately not part of isCartLine: a cart saved before
-    // that field existed is still a perfectly good cart, so it's normalised
-    // to null here (formatMoney falls back to a bare number) rather than
-    // discarding the line.
-    return parsed
-      .filter(isCartLine)
-      .map((line) => ({ ...line, currency: line.currency ?? null }));
+    // `currency`, `preorderLeadTimeDays` and `preorderRequiresPrepayment`
+    // are deliberately not part of isCartLine: a cart saved before any of
+    // them existed is still a perfectly good cart, so they're normalised to
+    // null here rather than discarding the line. formatMoney falls back to a
+    // bare number, a null lead time reads as "ships when stock arrives" — the
+    // honest answer for a line whose wait we genuinely don't have — and a null
+    // prepayment flag leaves cod on offer for the server to rule on.
+    return parsed.filter(isCartLine).map((line) => ({
+      ...line,
+      currency: line.currency ?? null,
+      preorderLeadTimeDays: line.preorderLeadTimeDays ?? null,
+      preorderRequiresPrepayment: line.preorderRequiresPrepayment ?? null,
+    }));
   } catch {
     return [];
   }
@@ -74,4 +92,44 @@ export function cartCount(lines: CartLine[]): number {
 
 export function cartSubtotal(lines: CartLine[]): number {
   return lines.reduce((sum, line) => sum + Number(line.unitPrice) * line.quantity, 0);
+}
+
+/**
+ * Whether this cart forces payment up front, i.e. holds at least one
+ * preorder line the shop won't ship on credit. Checkout drops cash-on-
+ * delivery from the payment list when it's true.
+ *
+ * One prepaid line is enough — the order ships as one parcel and settles as
+ * one payment, so there is nothing to split. Tests for `true` explicitly:
+ * null means "this line predates the field", not "no prepayment required".
+ *
+ * Advisory only. The server rejects cod on a prepaid preorder with a 422 no
+ * matter what a stale snapshot here says — this exists so the customer
+ * learns it while choosing rather than on the last tap.
+ */
+export function cartRequiresPrepayment(lines: CartLine[]): boolean {
+  return lines.some((line) => line.preorderRequiresPrepayment === true);
+}
+
+/**
+ * The delivery fee to display for a given fulfillment choice, as a number.
+ *
+ * Pickup is always 0 — the server forces it there, and a displayed total
+ * that doesn't match what gets charged is the one failure mode this whole
+ * line of code exists to prevent.
+ *
+ * An undecided choice (a shop offering both, before the customer picks)
+ * bills as delivery: it's the higher of the two, so the total can only fall
+ * once they choose, never rise after they've already read it.
+ */
+export function deliveryFeeFor(
+  fulfillment: FulfillmentType | null,
+  shopDeliveryFee: string | null | undefined,
+): number {
+  if (fulfillment === "pickup") return 0;
+  const fee = Number(shopDeliveryFee);
+  // Covers undefined (shop still loading), a malformed value, and a shop
+  // that simply doesn't charge for delivery — all of which display as free
+  // rather than as NaN.
+  return Number.isFinite(fee) && fee > 0 ? fee : 0;
 }

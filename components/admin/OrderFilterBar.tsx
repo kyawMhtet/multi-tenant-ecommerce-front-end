@@ -1,8 +1,7 @@
 "use client";
 
-import { Loader2Icon } from "lucide-react";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { FilterBar } from "@/components/admin/FilterBar";
+import { DateRangePicker } from "@/components/admin/DateRangePicker";
 import {
   Select,
   SelectContent,
@@ -10,6 +9,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { controls } from "@/lib/design-tokens";
+import { cn } from "@/lib/utils";
 
 export type OrderStatusFilter =
   | "all"
@@ -31,6 +32,8 @@ interface OrderFilterBarProps {
   dateTo: string;
   onDateToChange: (value: string) => void;
   isFetching?: boolean;
+  onClear: () => void;
+  isFiltered: boolean;
 }
 
 const STATUS_OPTIONS: OrderStatusFilter[] = [
@@ -73,15 +76,17 @@ export function OrderFilterBar({
   dateTo,
   onDateToChange,
   isFetching,
+  onClear,
+  isFiltered,
 }: OrderFilterBarProps) {
   return (
-    <div className="flex flex-wrap items-end gap-2">
+    <FilterBar onClear={onClear} isFiltered={isFiltered} isFetching={isFetching}>
       <Select
         items={STATUS_ITEMS}
         value={status}
         onValueChange={(value) => onStatusChange((value ?? "all") as OrderStatusFilter)}
       >
-        <SelectTrigger size="sm" className="w-36">
+        <SelectTrigger className={cn(controls.select, "w-40 shrink-0")}>
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -99,7 +104,7 @@ export function OrderFilterBar({
         value={source}
         onValueChange={(value) => onSourceChange((value ?? "all") as OrderSourceFilter)}
       >
-        <SelectTrigger size="sm" className="w-32">
+        <SelectTrigger className={cn(controls.select, "w-36 shrink-0")}>
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -109,32 +114,20 @@ export function OrderFilterBar({
         </SelectContent>
       </Select>
 
-      <Label className="flex flex-col items-stretch gap-1">
-        <span className="text-xs text-muted-foreground">From</span>
-        <Input
-          type="date"
-          value={dateFrom}
-          onChange={(e) => onDateFromChange(e.target.value)}
-          className="h-7 w-36"
-        />
-      </Label>
-
-      <Label className="flex flex-col items-stretch gap-1">
-        <span className="text-xs text-muted-foreground">To</span>
-        <Input
-          type="date"
-          value={dateTo}
-          onChange={(e) => onDateToChange(e.target.value)}
-          className="h-7 w-36"
-        />
-      </Label>
-
-      {isFetching && (
-        <Loader2Icon
-          className="size-4 shrink-0 animate-spin text-muted-foreground"
-          aria-label="Loading orders from the server"
-        />
-      )}
-    </div>
+      {/* One range control instead of the two bare date inputs this used to
+          have. Those needed their own stacked "From"/"To" captions, which
+          made the whole bar two rows tall and left it the only toolbar in
+          the app with labels above its controls — and the reports screen
+          already had this exact picker. */}
+      <DateRangePicker
+        dateFrom={dateFrom || undefined}
+        dateTo={dateTo || undefined}
+        emptyLabel="Any date"
+        onApply={(range) => {
+          onDateFromChange(range.date_from ?? "");
+          onDateToChange(range.date_to ?? "");
+        }}
+      />
+    </FilterBar>
   );
 }

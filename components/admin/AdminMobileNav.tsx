@@ -22,9 +22,9 @@ export function AdminMobileNav() {
   const { data: tenant } = useTenant();
 
   return (
-    <header className="sticky top-0 z-30 flex items-center gap-3 border-b bg-background px-4 py-3 md:hidden print:hidden">
+    <header className="sticky top-0 z-30 flex h-15 items-center gap-3 border-b bg-background/95 px-4 backdrop-blur md:hidden print:hidden">
       <Sheet open={open} onOpenChange={setOpen}>
-        <SheetTrigger render={<Button type="button" variant="ghost" size="icon-sm" />}>
+        <SheetTrigger render={<Button type="button" variant="ghost" size="icon-lg" className="rounded-xl" />}>
           <Menu className="size-5" />
           <span className="sr-only">Open navigation</span>
         </SheetTrigger>

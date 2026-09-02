@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ErrorState } from "@/components/shared/ErrorState";
 import { EmptyState } from "@/components/shared/EmptyState";
 import type { Product, ProductVariant } from "@/lib/types";
+import { controls } from "@/lib/design-tokens";
 
 export interface CartLine {
   product: Product;
@@ -129,9 +130,9 @@ export function POSCart({
 
         <Button
           type="button"
-          size="lg"
           onClick={onCheckout}
           disabled={cart.length === 0 || isPending}
+          className={controls.button}
         >
           {isPending ? "Processing..." : "Checkout — cash"}
         </Button>

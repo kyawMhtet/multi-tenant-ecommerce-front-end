@@ -3,10 +3,9 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import { CameraIcon, QrCodeIcon } from "lucide-react";
-import { ApiError } from "@/lib/api-client";
 import { useUpsertPaymentMethod } from "@/lib/hooks/useUpsertPaymentMethod";
 import { ShopImageField, type ShopImageFieldValue } from "@/components/admin/ShopImageField";
-import { ErrorState } from "@/components/shared/ErrorState";
+import { ApiErrorState } from "@/components/shared/ApiErrorState";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -15,6 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import type { PaymentMethodConfig } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { controls } from "@/lib/design-tokens";
 
 interface DraftState {
   isEnabled: boolean;
@@ -85,11 +85,6 @@ export function PaymentMethodCard({
     }
   }
 
-  const saveError = upsert.error
-    ? upsert.error instanceof ApiError
-      ? upsert.error.message
-      : "Something went wrong. Please try again."
-    : null;
 
   return (
     <Card className={cn("shadow-sm", !draft.isEnabled && !isDirty && "bg-muted/20")}>
@@ -176,16 +171,21 @@ export function PaymentMethodCard({
           />
         )}
 
-        {saveError && <ErrorState message={saveError} />}
+        {/* Saving a method is gated for a read-only shop, and turning on
+            `card` needs the card_payments feature — both arrive as 402s that
+            have to offer the way out rather than read as a failed save. */}
+        <ApiErrorState
+          error={upsert.error}
+          fallback="Something went wrong. Please try again."
+        />
 
         {!isBlocked && (
           <div className="flex items-center gap-3">
             <Button
               type="button"
-              size="sm"
               disabled={!isDirty || upsert.isPending}
               onClick={handleSave}
-              className="w-fit"
+              className={cn(controls.buttonSm, "w-fit")}
             >
               {upsert.isPending ? "Saving..." : "Save"}
             </Button>

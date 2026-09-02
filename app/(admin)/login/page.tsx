@@ -7,7 +7,7 @@ import { useLogin } from "@/lib/hooks/useLogin";
 import { setStoredTenantSlug, setStoredToken, setStoredUserName } from "@/lib/auth";
 import { ErrorState } from "@/components/shared/ErrorState";
 import { AuthCard } from "@/components/admin/AuthCard";
-import { AuthField } from "@/components/admin/AuthField";
+import { AuthField } from "@/components/shared/AuthField";
 import { Button } from "@/components/ui/button";
 
 export default function LoginPage() {

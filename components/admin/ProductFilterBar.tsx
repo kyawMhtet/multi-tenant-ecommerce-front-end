@@ -1,10 +1,10 @@
 "use client";
 
-import { Loader2Icon, Search } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
 import { useCategories } from "@/lib/hooks/useCategories";
-import { Input } from "@/components/ui/input";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
+import { FilterBar } from "@/components/admin/FilterBar";
+import { SearchInput } from "@/components/admin/SearchInput";
 import {
   Select,
   SelectContent,
@@ -12,8 +12,21 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { controls } from "@/lib/design-tokens";
+import { cn } from "@/lib/utils";
 
 export type ActiveStatus = "all" | "active" | "inactive";
+
+// Base UI's <Select.Value> renders the raw value unless the root is handed
+// an `items` label map — it doesn't read the matching <Select.Item>'s
+// children the way Radix does. Without this the trigger reads "all" instead
+// of "All statuses". The category select alongside it already had the same
+// fix; this one never did.
+const ACTIVE_STATUS_ITEMS: Record<ActiveStatus, string> = {
+  all: "All statuses",
+  active: "Active",
+  inactive: "Inactive",
+};
 
 interface ProductFilterBarProps {
   searchInput: string;
@@ -25,6 +38,11 @@ interface ProductFilterBarProps {
   lowStockOnly: boolean;
   onLowStockOnlyChange: (value: boolean) => void;
   isFetching?: boolean;
+  // Owned by the page (it also drives the filtered-to-nothing empty state),
+  // passed down so the bar can offer the reset next to the controls that
+  // caused it.
+  onClear: () => void;
+  isFiltered: boolean;
 }
 
 export function ProductFilterBar({
@@ -37,6 +55,8 @@ export function ProductFilterBar({
   lowStockOnly,
   onLowStockOnlyChange,
   isFetching,
+  onClear,
+  isFiltered,
 }: ProductFilterBarProps) {
   const { data: categories } = useCategories();
 
@@ -53,24 +73,25 @@ export function ProductFilterBar({
   });
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <div className="relative w-full max-w-sm">
-        <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          type="search"
-          placeholder="Search by name, SKU, or barcode..."
+    <FilterBar
+      onClear={onClear}
+      isFiltered={isFiltered}
+      search={
+        <SearchInput
           value={searchInput}
-          onChange={(e) => onSearchInputChange(e.target.value)}
-          className="pl-8"
+          onChange={onSearchInputChange}
+          label="Search products"
+          placeholder="Search by name, SKU, or barcode…"
+          isFetching={isFetching}
         />
-      </div>
-
+      }
+    >
       <Select
         items={categoryItems}
         value={categoryId !== null ? String(categoryId) : "all"}
         onValueChange={(value) => onCategoryIdChange(!value || value === "all" ? null : Number(value))}
       >
-        <SelectTrigger size="sm" className="w-40">
+        <SelectTrigger className={cn(controls.select, "w-44 shrink-0")}>
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -84,10 +105,11 @@ export function ProductFilterBar({
       </Select>
 
       <Select
+        items={ACTIVE_STATUS_ITEMS}
         value={activeStatus}
         onValueChange={(value) => onActiveStatusChange((value ?? "all") as ActiveStatus)}
       >
-        <SelectTrigger size="sm" className="w-32">
+        <SelectTrigger className={cn(controls.select, "w-36 shrink-0")}>
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -97,20 +119,24 @@ export function ProductFilterBar({
         </SelectContent>
       </Select>
 
-      <Label className="flex items-center gap-1.5 text-sm font-normal">
-        <Checkbox
-          checked={lowStockOnly}
-          onCheckedChange={(checked) => onLowStockOnlyChange(checked === true)}
-        />
+      {/* A toggle button rather than the checkbox this used to be: a bare
+          checkbox floating between two 40px selects has no shape of its own
+          and left the toolbar looking ragged. aria-pressed carries the same
+          on/off state to assistive tech that the checkbox did. */}
+      <Button
+        type="button"
+        variant="outline"
+        aria-pressed={lowStockOnly}
+        onClick={() => onLowStockOnlyChange(!lowStockOnly)}
+        className={cn(
+          controls.button,
+          "font-normal",
+          lowStockOnly && "border-primary/40 bg-primary/10 text-primary hover:bg-primary/15",
+        )}
+      >
+        <AlertTriangle className="size-4" />
         Low stock only
-      </Label>
-
-      {isFetching && (
-        <Loader2Icon
-          className="size-4 shrink-0 animate-spin text-muted-foreground"
-          aria-label="Loading products from the server"
-        />
-      )}
-    </div>
+      </Button>
+    </FilterBar>
   );
 }

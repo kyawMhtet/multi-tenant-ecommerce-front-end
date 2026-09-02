@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
-import { ApiError } from "@/lib/api-client";
 import { useRestockVariant } from "@/lib/hooks/useRestockVariant";
 import {
   Dialog,
@@ -13,10 +12,11 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { controls } from "@/lib/design-tokens";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { ErrorState } from "@/components/shared/ErrorState";
+import { ApiErrorState } from "@/components/shared/ApiErrorState";
 import type { ProductVariant } from "@/lib/types";
 
 interface RestockFormState {
@@ -93,15 +93,10 @@ export function RestockDialog({ productId, variant }: RestockDialogProps) {
       toast.success(`Restocked — now ${Number(updated.current_stock)} in stock.`);
       setOpen(false);
     } catch {
-      // Surfaced via submitError below.
+      // Surfaced via the ApiErrorState below.
     }
   }
 
-  const submitError = restock.error
-    ? restock.error instanceof ApiError
-      ? restock.error.message
-      : "Something went wrong. Please try again."
-    : null;
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -126,8 +121,10 @@ export function RestockDialog({ productId, variant }: RestockDialogProps) {
               type="number"
               step="0.01"
               min="0"
+              placeholder="Units received"
               value={form.quantity}
               onChange={(e) => updateField("quantity", e.target.value)}
+              className={controls.input}
             />
             {errors.quantity && (
               <span className="text-sm text-destructive">{errors.quantity}</span>
@@ -143,6 +140,7 @@ export function RestockDialog({ productId, variant }: RestockDialogProps) {
               placeholder="Leave blank if unknown"
               value={form.unitCost}
               onChange={(e) => updateField("unitCost", e.target.value)}
+              className={controls.input}
             />
             {errors.unitCost && (
               <span className="text-sm text-destructive">{errors.unitCost}</span>
@@ -161,16 +159,22 @@ export function RestockDialog({ productId, variant }: RestockDialogProps) {
               onChange={(e) => updateField("note", e.target.value)}
               maxLength={1000}
               rows={2}
+              className={controls.textarea}
             />
           </Label>
 
-          {submitError && <ErrorState message={submitError} />}
+          {/* Restocking is gated with the rest of inventory: a lapsed shop
+              keeps selling what it has, it just can't grow it. */}
+          <ApiErrorState
+            error={restock.error}
+            fallback="Something went wrong. Please try again."
+          />
 
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => handleOpenChange(false)}>
+            <Button type="button" variant="outline" onClick={() => handleOpenChange(false)} className={controls.button}>
               Cancel
             </Button>
-            <Button type="submit" disabled={restock.isPending}>
+            <Button type="submit" disabled={restock.isPending} className={controls.button}>
               {restock.isPending ? "Saving..." : "Restock"}
             </Button>
           </DialogFooter>

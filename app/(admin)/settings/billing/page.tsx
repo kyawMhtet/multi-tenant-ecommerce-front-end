@@ -3,6 +3,7 @@
 import { Suspense, useState } from "react";
 import { toast } from "sonner";
 import { useBilling } from "@/lib/hooks/useBilling";
+import { useRole } from "@/lib/hooks/useRole";
 import { useStartSubscription } from "@/lib/hooks/useStartSubscription";
 import { PageContainer } from "@/components/shared/PageContainer";
 import { PageHeader } from "@/components/shared/PageHeader";
@@ -13,6 +14,7 @@ import { SubscriptionStatusCard } from "@/components/admin/SubscriptionStatusCar
 import { BillingPlanCard } from "@/components/admin/BillingPlanCard";
 import { TransferInstructionsPanel } from "@/components/admin/TransferInstructionsPanel";
 import { BillingInvoiceHistory } from "@/components/admin/BillingInvoiceHistory";
+import { RoleRequiredNotice } from "@/components/admin/RoleRequiredNotice";
 import {
   Dialog,
   DialogContent,
@@ -37,7 +39,8 @@ import { typography } from "@/lib/design-tokens";
  * that.
  */
 export default function BillingPage() {
-  const { data, isPending, error } = useBilling();
+  const { isOwner } = useRole();
+  const { data, isPending, error } = useBilling({ enabled: isOwner });
   const subscribe = useStartSubscription();
 
   // The transfer rail's answer, held so its bank details can be shown. Not
@@ -112,6 +115,23 @@ export default function BillingPage() {
         cardAccessEnds ? `access until ${cardAccessEnds}` : "the period you've already paid for"
       }.`
     : undefined;
+
+  if (!isOwner) {
+    return (
+      <PageContainer size="lg">
+        <div className="flex flex-col gap-6">
+          <PageHeader
+            title="Billing"
+            eyebrow="Settings"
+            description="Your subscription to this platform."
+            backHref="/dashboard"
+            backLabel="Back to dashboard"
+          />
+          <RoleRequiredNotice minimum="owner" />
+        </div>
+      </PageContainer>
+    );
+  }
 
   return (
     <PageContainer size="lg">

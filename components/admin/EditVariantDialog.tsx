@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import { useUpdateVariant } from "@/lib/hooks/useUpdateVariant";
+import { useTenant } from "@/lib/hooks/useTenant";
+import { DEFAULT_TIMEZONE } from "@/lib/timezones";
 import {
   Dialog,
   DialogContent,
@@ -20,11 +22,22 @@ import { ApiErrorState } from "@/components/shared/ApiErrorState";
 import { ProductImagePicker } from "@/components/admin/ProductImagePicker";
 import {
   PreorderFields,
+  preorderDepositPercentValue,
   preorderLeadTimeValue,
+  validatePreorderDepositPercent,
   validatePreorderLeadTime,
 } from "@/components/admin/PreorderFields";
+import {
+  DiscountFields,
+  discountFormStateFromVariant,
+  discountPayload,
+  validateDiscount,
+  type DiscountErrors,
+  type DiscountFormState,
+} from "@/components/admin/DiscountFields";
 import { BackorderBadge } from "@/components/admin/BackorderBadge";
 import { backorderedUnits } from "@/lib/stock";
+import { discountState } from "@/lib/discount";
 import type { ProductVariant } from "@/lib/types";
 
 interface EditVariantFormState {
@@ -38,7 +51,7 @@ interface EditVariantFormState {
   trackStock: boolean;
   allowPreorder: boolean;
   preorderLeadTimeDays: string;
-  preorderRequiresPrepayment: boolean;
+  preorderDepositPercent: string;
   isActive: boolean;
 }
 
@@ -47,7 +60,7 @@ function formStateFromVariant(variant: ProductVariant): EditVariantFormState {
     variantName: variant.variant_name ?? "",
     sku: variant.sku,
     barcode: variant.barcode ?? "",
-    buyingPrice: variant.buying_price,
+    buyingPrice: variant.buying_price ?? "",
     sellingPrice: variant.selling_price,
     unit: variant.unit ?? "",
     lowStockThreshold: variant.low_stock_threshold ?? "",
@@ -57,7 +70,7 @@ function formStateFromVariant(variant: ProductVariant): EditVariantFormState {
     // shows for it — and what turns back into null on the way out.
     preorderLeadTimeDays:
       variant.preorder_lead_time_days === null ? "" : String(variant.preorder_lead_time_days),
-    preorderRequiresPrepayment: variant.preorder_requires_prepayment,
+    preorderDepositPercent: String(variant.preorder_deposit_percent ?? 0),
     isActive: variant.is_active,
   };
 }
@@ -91,6 +104,9 @@ function validate(
   const leadTimeError = validatePreorderLeadTime(form.preorderLeadTimeDays);
   if (leadTimeError) errors.preorderLeadTimeDays = leadTimeError;
 
+  const depositError = validatePreorderDepositPercent(form.preorderDepositPercent);
+  if (depositError) errors.preorderDepositPercent = depositError;
+
   return errors;
 }
 
@@ -106,6 +122,35 @@ export function EditVariantDialog({ productId, variant }: EditVariantDialogProps
   const [pendingImages, setPendingImages] = useState<File[]>([]);
   const [imagesToDelete, setImagesToDelete] = useState<number[]>([]);
   const updateVariant = useUpdateVariant();
+  // A second instance of the same mutation, not a second call through the
+  // first: withdrawing a promotion is its own request, and sharing one
+  // mutation's isPending/error would make Save look like it was running (and
+  // show its failures) while Remove was.
+  const removePromotion = useUpdateVariant();
+
+  // The window is set on the SHOP's clock, and a fixed discount is in the
+  // shop's own money — neither is derivable from the variant. GET /tenant is
+  // open to every role, and it's already cached under ["tenant"].
+  const { data: tenant } = useTenant();
+  const timeZone = tenant?.timezone ?? DEFAULT_TIMEZONE;
+  const currency = tenant?.currency ?? null;
+
+  const [discount, setDiscount] = useState<DiscountFormState>(() =>
+    discountFormStateFromVariant(variant, timeZone),
+  );
+  const [discountErrors, setDiscountErrors] = useState<DiscountErrors>({});
+
+  // The dialog can open before GET /tenant resolves, and the dates were
+  // seeded against the fallback zone at that point — half an hour out for a
+  // Yangon shop, which is a whole day at midnight. Re-seeding when the real
+  // zone lands is a render-phase adjustment rather than an effect, so the
+  // fields are never committed showing the wrong day. Keyed on the zone
+  // VALUE, so it happens once and can't clobber an edit afterwards.
+  const [seededZone, setSeededZone] = useState(timeZone);
+  if (seededZone !== timeZone) {
+    setSeededZone(timeZone);
+    setDiscount(discountFormStateFromVariant(variant, timeZone));
+  }
 
   function updateField<K extends keyof EditVariantFormState>(
     key: K,
@@ -120,20 +165,57 @@ export function EditVariantDialog({ productId, variant }: EditVariantDialogProps
       // Re-seed from the latest variant data every time it opens — it may
       // have changed since the last time (e.g. a previous edit landed).
       setForm(formStateFromVariant(variant));
+      setDiscount(discountFormStateFromVariant(variant, timeZone));
       setErrors({});
+      setDiscountErrors({});
       setPendingImages([]);
       setImagesToDelete([]);
       updateVariant.reset();
+      removePromotion.reset();
+    }
+  }
+
+  /**
+   * Withdraw the promotion: `{ discount_type: null }` and nothing else.
+   *
+   * Deliberately not four blanked fields on the main save — the server clears
+   * the value and both dates itself, so this can't half-apply, and it can't be
+   * reached by clearing a field and not noticing. Immediate, because "removed
+   * it and then closed the dialog without saving" is not a state worth being
+   * able to reach.
+   */
+  async function handleRemovePromotion() {
+    updateVariant.reset();
+    removePromotion.reset();
+
+    try {
+      const updated = await removePromotion.mutateAsync({
+        productId,
+        variantId: variant.id,
+        data: { discount_type: null },
+      });
+      // Re-seeded from the RESPONSE, not from the `variant` prop: the list
+      // query is invalidated on success but hasn't come back yet, so the prop
+      // still describes the promotion that was just withdrawn.
+      setDiscount(discountFormStateFromVariant(updated, timeZone));
+      setDiscountErrors({});
+      toast.success("Promotion removed.");
+    } catch {
+      // Surfaced via the ApiErrorState below.
     }
   }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     updateVariant.reset();
+    removePromotion.reset();
 
     const validationErrors = validate(form);
+    const discountValidation = validateDiscount(discount, discountState(variant) !== "none");
     setErrors(validationErrors);
+    setDiscountErrors(discountValidation);
     if (Object.keys(validationErrors).length > 0) return;
+    if (Object.keys(discountValidation).length > 0) return;
 
     try {
       // Always the full field set, not a diff against the original values —
@@ -158,7 +240,13 @@ export function EditVariantDialog({ productId, variant }: EditVariantDialogProps
           // Sent whatever the checkbox says: the estimate survives preorder
           // being switched off, so switching it back on doesn't lose it.
           preorder_lead_time_days: preorderLeadTimeValue(form.preorderLeadTimeDays),
-          preorder_requires_prepayment: form.preorderRequiresPrepayment,
+          preorder_deposit_percent: preorderDepositPercentValue(form.preorderDepositPercent),
+          // Spread, not four fixed keys: an untouched discount block
+          // contributes NOTHING, and a PATCH that never mentions
+          // discount_type leaves the promotion alone. That's what keeps this
+          // "resend everything" form from withdrawing a promotion it wasn't
+          // asked to touch.
+          ...discountPayload(discount, timeZone),
           is_active: form.isActive,
           images: pendingImages.length > 0 ? pendingImages : undefined,
           remove_image_ids: imagesToDelete.length > 0 ? imagesToDelete : undefined,
@@ -180,12 +268,12 @@ export function EditVariantDialog({ productId, variant }: EditVariantDialogProps
       >
         Edit
       </DialogTrigger>
-      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-xl">
+      <DialogContent className="max-h-[90vh] overflow-y-auto p-6 sm:max-w-2xl lg:max-w-3xl">
         <DialogHeader>
           <DialogTitle>Edit variant</DialogTitle>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+        <form onSubmit={handleSubmit} className="flex flex-col gap-5">
           <Label className="flex flex-col items-stretch gap-1">
             <span className="text-sm">Variant name</span>
             <Input
@@ -200,7 +288,7 @@ export function EditVariantDialog({ productId, variant }: EditVariantDialogProps
             )}
           </Label>
 
-          <div className="flex gap-4">
+          <div className="grid gap-4 sm:grid-cols-2">
             <Label className="flex flex-1 flex-col items-stretch gap-1">
               <span className="text-sm">SKU</span>
               <Input
@@ -225,7 +313,7 @@ export function EditVariantDialog({ productId, variant }: EditVariantDialogProps
             </Label>
           </div>
 
-          <div className="flex gap-4">
+          <div className="grid gap-4 sm:grid-cols-2">
             <Label className="flex flex-1 flex-col items-stretch gap-1">
               <span className="text-sm">Buying price</span>
               <Input
@@ -289,16 +377,28 @@ export function EditVariantDialog({ productId, variant }: EditVariantDialogProps
             </Label>
           </div>
 
+          <DiscountFields
+            variant={variant}
+            form={discount}
+            onChange={setDiscount}
+            errors={discountErrors}
+            timeZone={timeZone}
+            currency={currency}
+            onRemove={handleRemovePromotion}
+            isRemoving={removePromotion.isPending}
+          />
+
           <PreorderFields
             allowPreorder={form.allowPreorder}
             leadTimeDays={form.preorderLeadTimeDays}
-            requiresPrepayment={form.preorderRequiresPrepayment}
+            depositPercent={form.preorderDepositPercent}
             onAllowPreorderChange={(value) => updateField("allowPreorder", value)}
             onLeadTimeChange={(value) => updateField("preorderLeadTimeDays", value)}
-            onRequiresPrepaymentChange={(value) =>
-              updateField("preorderRequiresPrepayment", value)
+            onDepositPercentChange={(value) =>
+              updateField("preorderDepositPercent", value)
             }
             error={errors.preorderLeadTimeDays}
+            depositError={errors.preorderDepositPercent}
           />
 
           {/* What preorder has already cost this variant, where the shop is
@@ -337,16 +437,26 @@ export function EditVariantDialog({ productId, variant }: EditVariantDialogProps
             onPendingFilesChange={setPendingImages}
           />
 
+          {/* Both mutations, one place. A 402 here is a read-only lockout on
+              the whole catalogue — discounts are not plan-gated — and
+              ApiErrorState is what turns it into a prompt with somewhere to
+              go rather than a flat sentence. */}
           <ApiErrorState
-            error={updateVariant.error}
+            error={updateVariant.error ?? removePromotion.error}
             fallback="Something went wrong. Please try again."
           />
 
-          <DialogFooter>
+          <DialogFooter className="-mx-6 -mb-6">
             <Button type="button" variant="outline" onClick={() => handleOpenChange(false)} className={controls.button}>
               Cancel
             </Button>
-            <Button type="submit" disabled={updateVariant.isPending} className={controls.button}>
+            <Button
+              type="submit"
+              // Also while the promotion is being withdrawn: the two requests
+              // hit the same variant, and the second to land would win.
+              disabled={updateVariant.isPending || removePromotion.isPending}
+              className={controls.button}
+            >
               {updateVariant.isPending ? "Saving..." : "Save changes"}
             </Button>
           </DialogFooter>

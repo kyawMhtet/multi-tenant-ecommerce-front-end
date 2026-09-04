@@ -6,6 +6,7 @@ import { ImageOff, Package, Plus, SearchX } from "lucide-react";
 import { ApiError } from "@/lib/api-client";
 import { useProductsPage, type ProductFilterParams } from "@/lib/hooks/useProductsPage";
 import { useCategories } from "@/lib/hooks/useCategories";
+import { useRole } from "@/lib/hooks/useRole";
 import { useDebouncedValue } from "@/lib/hooks/useDebouncedValue";
 import type { Product } from "@/lib/types";
 import { PageContainer } from "@/components/shared/PageContainer";
@@ -142,6 +143,8 @@ export default function ProductsPage() {
   const { data: categories } = useCategories();
   const categoryNameById = new Map(categories?.map((c) => [c.id, c.name]));
 
+  const { canManage } = useRole();
+
   const error = queryError
     ? queryError instanceof ApiError
       ? queryError.message
@@ -177,12 +180,12 @@ export default function ProductsPage() {
               : undefined
           }
           action={
-            isEmpty && !hasActiveFilters ? undefined : (
+            canManage && !(isEmpty && !hasActiveFilters) ? (
               <Link href="/products/new" className={cn(buttonVariants(), controls.button)}>
                 <Plus className="size-4" />
                 Add product
               </Link>
-            )
+            ) : undefined
           }
         />
 
@@ -238,11 +241,17 @@ export default function ProductsPage() {
             <EmptyState
               icon={Package}
               title="No products yet"
-              description="Add your first product and it will show up here, in the POS, and on your storefront."
+              description={
+                canManage
+                  ? "Add your first product and it will show up here, in the POS, and on your storefront."
+                  : "Nothing has been added to this shop yet. Ask a manager or the shop owner to add products."
+              }
               action={
-                <Link href="/products/new" className={cn(buttonVariants(), controls.button)}>
-                  Add your first product
-                </Link>
+                canManage ? (
+                  <Link href="/products/new" className={cn(buttonVariants(), controls.button)}>
+                    Add your first product
+                  </Link>
+                ) : undefined
               }
             />
           ))}
@@ -346,16 +355,18 @@ export default function ProductsPage() {
                           action on the row unreachable on a touch screen
                           (there is no hover to trigger). */}
                       <TableCell className="text-right">
-                        <Link
-                          href={`/products/${product.id}`}
-                          className={cn(
-                            buttonVariants({ variant: "ghost" }),
-                            controls.buttonSm,
-                            "text-muted-foreground group-hover:bg-background group-hover:text-foreground",
-                          )}
-                        >
-                          Edit
-                        </Link>
+                        {canManage && (
+                          <Link
+                            href={`/products/${product.id}`}
+                            className={cn(
+                              buttonVariants({ variant: "ghost" }),
+                              controls.buttonSm,
+                              "text-muted-foreground group-hover:bg-background group-hover:text-foreground",
+                            )}
+                          >
+                            Edit
+                          </Link>
+                        )}
                       </TableCell>
                     </TableRow>
                   );

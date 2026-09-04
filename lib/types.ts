@@ -5,6 +5,12 @@ export interface Category {
   slug: string;
 }
 
+// How a variant's promotion is expressed — mirrors App\Services\Pricing\
+// DiscountType. "percent" is 0-100 off the list price; "fixed" is an amount
+// of the shop's own currency, clamped at the price rather than going
+// negative. Null (absent from this union) is no promotion.
+export type DiscountType = "percent" | "fixed";
+
 export interface ProductVariant {
   id: number;
   sku: string;
@@ -18,8 +24,35 @@ export interface ProductVariant {
   unit: string | null;
   // decimal:2-cast columns — Laravel's Eloquent serializes these as
   // strings in JSON, not numbers.
-  buying_price: string;
+  buying_price?: string;
+  // The LIST price, unchanged by any promotion — the "was" figure a sale is
+  // struck through against. What the item actually sells for today is
+  // effective_price below; the two are equal when nothing is running.
   selling_price: string;
+  // The promotion as CONFIGURED. Null type is no promotion at all, and it's
+  // also how one is withdrawn (see UpdateVariantPayload) — the server clears
+  // the value and both dates alongside it.
+  discount_type: DiscountType | null;
+  // decimal:2 like every other money column, so "20.00" — a PERCENTAGE under
+  // discount_type "percent" and an amount of the shop's own currency under
+  // "fixed". The unit follows the type and nothing else; reading one as the
+  // other turns "20% off" into "20 Kyat off".
+  discount_value: string;
+  // ISO 8601 UTC (the shop is not in UTC — render through lib/discount.ts,
+  // which puts these back into tenants.timezone). Null start means live now.
+  discount_starts_at: string | null;
+  // EXCLUSIVE: the window is [starts, ends). Midnight on the 11th means the
+  // 10th was the last day the promotion ran. Null means until withdrawn.
+  discount_ends_at: string | null;
+  // Derived from the window as of NOW, server-side. This — never "has a
+  // discount_type" — is what a sale badge is driven by: a promotion that
+  // hasn't opened yet returns false with both its dates populated.
+  discount_active: boolean;
+  // What this variant sells for today, already reduced. Read it; never
+  // recompute it from the fields above, and never present a figure this app
+  // worked out itself as the amount being charged. Can be "0.00": a fixed
+  // discount larger than the price clamps to free rather than going negative.
+  effective_price: string;
   track_stock: boolean;
   // CAN BE NEGATIVE, and that is correct data, not a bug: a variant sold on
   // preorder goes below zero, and "-7" means seven units already sold that
@@ -33,11 +66,12 @@ export interface ProductVariant {
   // 1–365, or null for "we don't know yet" — which is a real answer, not a
   // missing one, so nothing anywhere defaults it to a number.
   preorder_lead_time_days: number | null;
-  // Whether a preorder of this variant has to be paid up front. Only
-  // meaningful while allow_preorder is on, and it is NOT a pricing rule —
-  // it's what stops a customer picking cash-on-delivery for stock the shop
-  // hasn't bought yet.
-  preorder_requires_prepayment: boolean;
+  // 0-100. What a preorder of this variant must be paid up front, as a
+  // percentage: 0 is no deposit, 100 is pay in full before we order it, 50 is
+  // half. Only meaningful while allow_preorder is on, and it is NOT a pricing
+  // rule — ANY value above 0 is what stops a customer picking cash-on-delivery
+  // for stock the shop hasn't bought yet.
+  preorder_deposit_percent: number;
   is_active: boolean;
   // This variant's own photos, separate from the product's general gallery
   // (Product.images). Empty unless someone explicitly uploaded some for it —
@@ -89,7 +123,11 @@ export interface StoreProductPayload {
     // block. Optional: the backend defaults allow_preorder to false.
     allow_preorder?: boolean;
     preorder_lead_time_days?: number | null;
-    preorder_requires_prepayment?: boolean;
+    preorder_deposit_percent?: number;
+    discount_type?: DiscountType | null;
+    discount_value?: number;
+    discount_starts_at?: string | null;
+    discount_ends_at?: string | null;
   };
   // Max 10 files, each an actual image MIME type, max 2048KB — enforced by
   // StoreProductRequest; ProductImagePicker only warns about the size
@@ -116,7 +154,12 @@ export interface AddVariantPayload {
   // Integer 1–365 — anything outside that is a 422 on this key. null clears
   // it back to "no estimate".
   preorder_lead_time_days?: number | null;
-  preorder_requires_prepayment?: boolean;
+  // Integer 0-100. Anything else is a 422 on this key.
+  preorder_deposit_percent?: number;
+  discount_type?: DiscountType | null;
+  discount_value?: number;
+  discount_starts_at?: string | null;
+  discount_ends_at?: string | null;
   // Optional per-variant photos. Same limits as product images: up to 10
   // files, 2MB each, real image MIME types (enforced server-side).
   images?: File[];
@@ -142,12 +185,37 @@ export interface UpdateVariantPayload {
   unit?: string;
   buying_price?: number;
   selling_price?: number;
+  /**
+   * The promotion. Genuinely partial, and in a way the other fields here
+   * aren't: a PATCH that never mentions discount_type leaves the promotion
+   * entirely alone (ProductService keys on the KEY being present), so the
+   * stock-only and image-only saves elsewhere in this app can keep omitting
+   * all four.
+   *
+   * `discount_type: null` sent ON ITS OWN is how a promotion is WITHDRAWN —
+   * the server clears discount_value and both dates with it, so nothing here
+   * has to send four nulls and hope they're applied together.
+   *
+   * discount_value is required whenever discount_type is sent, >= 0, and
+   * <= 100 for "percent". Its unit follows the type: a percentage under
+   * "percent", the shop's own currency under "fixed".
+   */
+  discount_type?: DiscountType | null;
+  discount_value?: number;
+  // ISO 8601 WITH AN OFFSET, built from the shop's timezone by
+  // lib/discount.ts — a bare "2026-09-11" would be read as UTC midnight,
+  // which is the previous evening in Yangon. Null clears the bound.
+  discount_starts_at?: string | null;
+  // Exclusive, and only validated as after:discount_starts_at when a start
+  // is sent in the same request.
+  discount_ends_at?: string | null;
   low_stock_threshold?: number | null;
   track_stock?: boolean;
   allow_preorder?: boolean;
   // Integer 1–365 (422 on this key otherwise), or null for "no estimate".
   preorder_lead_time_days?: number | null;
-  preorder_requires_prepayment?: boolean;
+  // Integer 0-100.
+  preorder_deposit_percent?: number;
   is_active?: boolean;
   images?: File[];
   remove_image_ids?: number[];
@@ -223,7 +291,15 @@ export interface OrderItem {
   // decimal:2-cast on the model, so this arrives as "1.00", not 1 — render
   // it through formatQuantity, never raw.
   quantity: string;
+  // The LIST price at sale time, with what came off it beside — so a receipt
+  // can show the saving rather than just a smaller number:
+  //   unit_price x quantity - discount_amount = line_total.
   unit_price: string;
+  // The promotion SNAPSHOT for this line. Withdrawing a promotion later does
+  // not change it, and nothing may recompute it from the variant — the
+  // variant's discount may have expired, deepened, or gone entirely since.
+  // "0.00" on an ordinary line, which is most of them.
+  discount_amount: string;
   line_total: string;
   // Per line, because a mixed cart is normal: one item off the shelf, one
   // on order. Only the preorder lines are marked, never the whole order's
@@ -242,7 +318,14 @@ export interface Order {
   source: string;
   status: string;
   payment_status: string;
+  // GROSS: quantity x LIST price, before any reduction. It stopped being the
+  // sum of the line totals when per-variant discounts landed, so a screen
+  // showing Subtotal beside Total has to show Discount between them or a
+  // discounted order visibly doesn't add up:
+  //   subtotal - discount_amount + tax_amount + delivery_fee = total.
   subtotal: string;
+  // The sum of the LINE discounts, and nothing else — there are no coupon
+  // codes and no order-level promotions. No longer permanently zero.
   discount_amount: string;
   tax_amount: string;
   total: string;
@@ -353,7 +436,20 @@ export interface StorefrontProductVariant {
   variant_name: string | null;
   attributes: Record<string, string> | null;
   unit: string | null;
+  // ALWAYS the list price, on sale or not — the "was" figure sale_price is
+  // struck through against. A client that knows nothing about sale_price
+  // therefore shows the higher number and the customer is charged less,
+  // which is the safe direction for an old client to be wrong in.
   selling_price: string;
+  // What it actually sells for, and NULL unless a promotion is running right
+  // now. Non-null IS the on-sale test — there are no dates out here to
+  // compare, deliberately. Advisory like every other price on this resource:
+  // the server prices the cart when the order is created.
+  sale_price: string | null;
+  // The badge figure, in whole percent, derived server-side even for a fixed
+  // discount so the storefront renders ONE badge and never branches on type.
+  // Null exactly when sale_price is.
+  discount_percent: number | null;
   // "preorder" is out of stock but still orderable, with a wait — it is a
   // BUYABLE state, unlike out_of_stock. Anything gating a buy action must
   // test for out_of_stock specifically rather than "not in_stock".
@@ -362,12 +458,12 @@ export interface StorefrontProductVariant {
   // shop hasn't committed to a lead time, which means "ships when stock
   // arrives", never an invented date.
   preorder_lead_time_days: number | null;
-  // Whether a preorder of this variant has to be paid up front. Null unless
-  // stock_status is "preorder", same as the lead time — so there is no way
-  // to render a prepayment demand against something on the shelf. It is
-  // what takes cash-on-delivery off the checkout's payment list; see
-  // cartRequiresPrepayment() in lib/cart.ts.
-  preorder_requires_prepayment: boolean | null;
+  // 0-100, what must be paid up front. NULL unless stock_status is
+  // "preorder", same as the lead time — so there is no way to render a deposit
+  // demand against something on the shelf, and null means "not a preorder
+  // line", NOT zero. Any value above 0 takes cash-on-delivery off the
+  // checkout's payment list; see cartRequiresPrepayment() in lib/cart.ts.
+  preorder_deposit_percent: number | null;
   // This variant's own photos. Empty for most variants (size-only, no
   // visual difference) — the product page falls back to StorefrontProduct.
   // images when this is empty, and shows these instead when it isn't.
@@ -479,11 +575,15 @@ export interface RegisterResponse {
   data: AuthUser;
 }
 
+export const SHOP_ROLES = ["cashier", "manager", "owner"] as const;
+
+export type ShopRole = (typeof SHOP_ROLES)[number];
+
 export interface AuthUser {
   id: number;
   name: string;
   email: string;
-  role: string;
+  role: ShopRole;
   tenant_id: number;
   // Mirrors UserResource's `$this->tenant?->slug` — null-safe, so this is
   // null (not absent) if the user somehow has no tenant relation.
@@ -495,6 +595,47 @@ export interface AuthUser {
 export interface LoginResponse {
   data: AuthUser;
   token: string;
+}
+
+// ---------------------------------------------------------------------------
+// Staff (the shop's own logins)
+// ---------------------------------------------------------------------------
+
+export interface StaffMember {
+  id: number;
+  name: string;
+  email: string;
+  role: ShopRole;
+  role_label: string;
+  is_you: boolean;
+  created_at: string;
+}
+
+export interface StaffRoleOption {
+  value: ShopRole;
+  label: string;
+}
+
+export interface StaffCollection {
+  data: StaffMember[];
+  meta: {
+    used: number;
+    limit: number | null;
+    roles: StaffRoleOption[];
+  };
+}
+
+export interface StoreStaffPayload {
+  name: string;
+  email: string;
+  password: string;
+  role: ShopRole;
+}
+
+export interface UpdateStaffPayload {
+  name?: string;
+  password?: string;
+  role?: ShopRole;
 }
 
 export const BUSINESS_HOURS_DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
@@ -1348,8 +1489,8 @@ export interface PlatformInvoice {
   period_start: string | null;
   period_end: string | null;
   // Null means the shop asked for bank details and never uploaded anything.
-  // Worth chasing, not worth hiding — the queue shows these, ordered after
-  // the ones that do have a screenshot.
+  // Those rows are their own list now — GET /billing/awaiting-transfer, where
+  // this is ALWAYS null — and are excluded from the review queue.
   proof_url: string | null;
   reviewed_at: string | null;
   note: string | null;

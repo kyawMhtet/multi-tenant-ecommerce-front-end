@@ -46,9 +46,14 @@ type ReviewAction = "approve" | "reject";
 export function ReviewInvoiceDialog({
   invoice,
   action,
+  // The chase list keeps both rulings reachable — a transfer spotted on the
+  // statement still has to be settleable — but nothing there is waiting on a
+  // decision, so neither button may look like the thing to do next.
+  quiet = false,
 }: {
   invoice: PlatformInvoice;
   action: ReviewAction;
+  quiet?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
@@ -114,7 +119,7 @@ export function ReviewInvoiceDialog({
         render={
           <Button
             type="button"
-            variant={isReject ? "outline" : "default"}
+            variant={quiet ? (isReject ? "ghost" : "outline") : isReject ? "outline" : "default"}
             className={controls.buttonSm}
           />
         }

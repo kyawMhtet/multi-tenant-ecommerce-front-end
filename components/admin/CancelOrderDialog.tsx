@@ -45,6 +45,8 @@ interface CancelErrors {
  */
 export function CancelOrderDialog({ order }: { order: Order }) {
   const [open, setOpen] = useState(false);
+  const isPartPaid = order.payment_status === "partial";
+  const hasCollectedMoney = order.payment_status === "paid" || isPartPaid;
   const [reason, setReason] = useState("");
   const [note, setNote] = useState("");
   const [errors, setErrors] = useState<CancelErrors>({});
@@ -99,8 +101,8 @@ export function CancelOrderDialog({ order }: { order: Order }) {
       });
       setOpen(false);
       toast.success(
-        order.payment_status === "paid"
-          ? "Order cancelled. This one was paid — send the refund and record it below."
+        hasCollectedMoney
+          ? "Order cancelled. Money was collected on this one — send it back."
           : "Order cancelled.",
       );
     } catch {
@@ -136,7 +138,13 @@ export function CancelOrderDialog({ order }: { order: Order }) {
         <p className="text-sm text-muted-foreground">
           {order.payment_status === "paid"
             ? "This order has been paid. Cancelling it doesn't move any money — you'll need to send the refund yourself, and this screen will keep reminding you until you record it."
-            : "The customer will need to be told separately — cancelling here doesn't notify them."}
+            : isPartPaid
+              ? // Deliberately NOT the sentence above. refund_required is derived
+                // from payment_status "paid" alone server-side, so a cancelled
+                // part-paid order raises no refund reminder anywhere in this app —
+                // promising one here would be the more expensive kind of wrong.
+                "A deposit has already been collected on this order. Cancelling it doesn't move any money, and the refund reminder only covers fully-paid orders — so send the deposit back and keep your own note of it."
+              : "The customer will need to be told separately — cancelling here doesn't notify them."}
         </p>
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">

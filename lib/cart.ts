@@ -30,14 +30,13 @@ export interface CartLine {
   // customer was shown when they added the line, without refetching each
   // product. Null for anything that isn't a preorder.
   preorderLeadTimeDays: number | null;
-  // Whether this preorder has to be paid up front — what removes cash-on-
-  // delivery from checkout. Null for anything that isn't a preorder, and
-  // also null on a line saved before this field existed, which is why
-  // cartRequiresPrepayment() tests for `true` rather than truthiness: an
-  // unknown must not be read as a demand for money the shop never made.
-  // A stale snapshot is only ever advisory anyway — the server refuses cod
-  // on a prepaid preorder with a 422 regardless of what the cart thinks.
-  preorderRequiresPrepayment: boolean | null;
+  // 0-100: what share of this line must be paid at the moment of ordering.
+  // Null for anything that isn't a preorder, and also null on a line saved
+  // before this field existed — which is why the checks below coalesce to 0
+  // rather than treating an unknown as a demand for money the shop never
+  // made. A stale snapshot is only ever advisory: the server refuses cod
+  // against any deposit with a 422 regardless of what the cart thinks.
+  preorderDepositPercent: number | null;
 }
 
 function isCartLine(value: unknown): value is CartLine {
@@ -59,18 +58,18 @@ export function readStoredCart(): CartLine[] {
     if (!raw) return [];
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    // `currency`, `preorderLeadTimeDays` and `preorderRequiresPrepayment`
-    // are deliberately not part of isCartLine: a cart saved before any of
-    // them existed is still a perfectly good cart, so they're normalised to
-    // null here rather than discarding the line. formatMoney falls back to a
-    // bare number, a null lead time reads as "ships when stock arrives" — the
+    // `currency`, `preorderLeadTimeDays` and `preorderDepositPercent` are
+    // deliberately not part of isCartLine: a cart saved before any of them
+    // existed is still a perfectly good cart, so they're normalised to null
+    // here rather than discarding the line. formatMoney falls back to a bare
+    // number, a null lead time reads as "ships when stock arrives" — the
     // honest answer for a line whose wait we genuinely don't have — and a null
-    // prepayment flag leaves cod on offer for the server to rule on.
+    // deposit leaves cod on offer for the server to rule on.
     return parsed.filter(isCartLine).map((line) => ({
       ...line,
       currency: line.currency ?? null,
       preorderLeadTimeDays: line.preorderLeadTimeDays ?? null,
-      preorderRequiresPrepayment: line.preorderRequiresPrepayment ?? null,
+      preorderDepositPercent: line.preorderDepositPercent ?? null,
     }));
   } catch {
     return [];
@@ -95,20 +94,62 @@ export function cartSubtotal(lines: CartLine[]): number {
 }
 
 /**
- * Whether this cart forces payment up front, i.e. holds at least one
- * preorder line the shop won't ship on credit. Checkout drops cash-on-
- * delivery from the payment list when it's true.
+ * Whether this cart forces money up front, i.e. holds at least one preorder
+ * line carrying a deposit. Checkout drops cash-on-delivery from the payment
+ * list when it's true.
  *
- * One prepaid line is enough — the order ships as one parcel and settles as
- * one payment, so there is nothing to split. Tests for `true` explicitly:
- * null means "this line predates the field", not "no prepayment required".
+ * ANY deposit counts, not just a 100% one: cash on delivery collects nothing
+ * at the moment of ordering, so "half now" is exactly as impossible on it as
+ * "all now". The percentage decides HOW MUCH is taken, never WHETHER the
+ * method can take it — the same rule OrderService applies server-side.
  *
- * Advisory only. The server rejects cod on a prepaid preorder with a 422 no
- * matter what a stale snapshot here says — this exists so the customer
- * learns it while choosing rather than on the last tap.
+ * One such line is enough. The order ships as one parcel and settles under one
+ * payment method, so there is nothing to split.
+ *
+ * Advisory only. The server rejects cod against a deposit with a 422 no matter
+ * what a stale snapshot here says — this exists so the customer learns it
+ * while choosing rather than on the last tap.
  */
 export function cartRequiresPrepayment(lines: CartLine[]): boolean {
-  return lines.some((line) => line.preorderRequiresPrepayment === true);
+  return lines.some((line) => (line.preorderDepositPercent ?? 0) > 0);
+}
+
+/**
+ * Two decimal places, matching PHP's round() rather than JS's.
+ *
+ * The intermediate toFixed is not decoration: Math.round(2.675 * 100) is 267,
+ * because 2.675 is really 2.67499999999999982…, while PHP's round(2.675, 2)
+ * pre-corrects that representation error and answers 2.68. Rounding the
+ * scaled value through a fixed-precision string reproduces that, so the two
+ * sides agree on the awkward cases as well as the easy ones.
+ */
+function roundMoney(value: number): number {
+  return Math.round(Number((value * 100).toFixed(6))) / 100;
+}
+
+/**
+ * What is payable NOW — the sum of each preorder line's deposit.
+ *
+ * Rounds PER LINE and then sums, because that is exactly what OrderService
+ * does when it writes deposit_amount on each order item. Summing first and
+ * rounding once is the obvious alternative and it can land a unit away from
+ * what actually gets charged; a customer shown 334,000 and then charged
+ * 334,001 has no reason to trust either number.
+ *
+ * Lines with no deposit contribute nothing, so a mixed cart returns only the
+ * preorder part — which is the whole point of showing it: the rest is due on
+ * delivery.
+ */
+export function cartDepositDue(lines: CartLine[]): number {
+  return lines.reduce((sum, line) => {
+    const percent = line.preorderDepositPercent ?? 0;
+    if (percent <= 0) return sum;
+
+    const lineTotal = Number(line.unitPrice) * line.quantity;
+    if (!Number.isFinite(lineTotal)) return sum;
+
+    return sum + roundMoney((lineTotal * percent) / 100);
+  }, 0);
 }
 
 /**

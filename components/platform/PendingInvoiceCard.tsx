@@ -28,11 +28,10 @@ function Fact({ label, value }: { label: string; value: string }) {
  * between a line on a statement and a shop — with the screenshot beside them
  * rather than a click away.
  *
- * An invoice with NO screenshot is shown, not hidden. It means the shop asked
- * for bank details and went quiet, which is either a payment that arrived
- * without a screenshot or a shop worth chasing; hiding those would make the
- * queue look finished when it isn't. That's also why the owner's email and
- * phone are on the card.
+ * Every row in this queue has a screenshot — proofless intents are their own
+ * list now (AwaitingTransferCard), because mixing them in meant the queue had
+ * to be visually filtered before it could be worked. The owner's contact
+ * details stay here anyway: a screenshot that doesn't match is a phone call.
  */
 export function PendingInvoiceCard({ invoice }: { invoice: PlatformInvoice }) {
   const raised = formatBillingDate(invoice.created_at);
@@ -41,8 +40,9 @@ export function PendingInvoiceCard({ invoice }: { invoice: PlatformInvoice }) {
   const period =
     periodStart && periodEnd ? `${periodStart} – ${periodEnd}` : (periodStart ?? periodEnd ?? "—");
 
-  // A previously rejected invoice stays in the queue (it's still unpaid), so
-  // the reviewer needs to see what was said last time before ruling again.
+  // Defensive: scopeAwaitingApproval() is `status = pending`, so a rejected
+  // invoice no longer reaches this queue. Kept so that if it ever does, the
+  // reviewer sees what was said last time before ruling again.
   const wasRejected = invoice.status === "failed";
 
   return (
@@ -116,10 +116,8 @@ export function PendingInvoiceCard({ invoice }: { invoice: PlatformInvoice }) {
         ) : (
           <p className="flex items-center gap-2 text-sm text-muted-foreground">
             <ImageOff className="size-4 shrink-0" aria-hidden="true" />
-            {/* Not an error and not a reason to hide the row — see the note on
-                this component. */}
-            Nothing uploaded. The shop asked for bank details and hasn&apos;t sent a screenshot —
-            check the statement for {invoice.reference}, or chase them.
+            No screenshot on this row. It belongs on the Awaiting transfer list — check the
+            statement for {invoice.reference} before ruling either way.
           </p>
         )}
       </div>

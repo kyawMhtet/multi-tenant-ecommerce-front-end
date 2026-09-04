@@ -1,4 +1,4 @@
-import type { StorefrontProductVariant } from "@/lib/types";
+import type { FulfillmentType, StorefrontProductVariant } from "@/lib/types";
 
 type StockStatus = StorefrontProductVariant["stock_status"];
 
@@ -59,4 +59,75 @@ export function aggregatePreorderLeadTime(
 
   if (leadTimes.length === 0 || leadTimes.some((days) => days === null)) return null;
   return Math.max(...(leadTimes as number[]));
+}
+
+/**
+ * One deposit for a whole product, for the catalogue card.
+ *
+ * Takes the HIGHEST of its preorder variants, on the same principle as
+ * aggregatePreorderLeadTime taking the longest wait: of the two ways to be
+ * wrong on a card, quoting a smaller deposit than the customer will actually
+ * be asked for is the one that turns into an abandoned checkout. The product
+ * page still shows the exact figure for the option they pick.
+ *
+ * Null when nothing here is on preorder, and null when every preorder variant
+ * asks for nothing — a card should say something only when there IS something
+ * to say.
+ */
+export function aggregatePreorderDepositPercent(
+  variants: StorefrontProductVariant[],
+): number | null {
+  const percents = variants
+    .filter((v) => v.stock_status === "preorder")
+    .map((v) => v.preorder_deposit_percent ?? 0);
+
+  if (percents.length === 0) return null;
+
+  const highest = Math.max(...percents);
+  return highest > 0 ? highest : null;
+}
+
+/**
+ * What a customer has to pay at the moment of ordering, in words.
+ *
+ * Lives here with preorderWaitText() and for the same reason: the panel, the
+ * cart and the checkout summary must say the same thing, because finding out
+ * at the payment step that half is due is the same surprise as finding out
+ * about the wait after paying — which is the thing the whole preorder design
+ * exists to prevent.
+ *
+ * Null for anything that asks for nothing up front, so a caller renders
+ * nothing rather than "0% deposit". Null and 0 deliberately collapse to the
+ * same answer HERE even though they mean different things upstream (not a
+ * preorder line vs. a preorder with no deposit): neither owes money now.
+ */
+export function depositText(percent: number | null | undefined): string | null {
+  if (percent === null || percent === undefined || percent <= 0) return null;
+  // Not "100% deposit", which reads as a contradiction — a deposit is by
+  // definition part of a price.
+  if (percent >= 100) return "Paid in full up front";
+  return `${percent}% deposit required`;
+}
+
+/**
+ * What to call the money that isn't due yet. Pickup collects at the counter,
+ * not from a driver, so the two can't share one word without one of them
+ * being wrong.
+ */
+export function depositBalanceLabel(fulfillment: FulfillmentType | null): string {
+  return fulfillment === "pickup" ? "On collection" : "On delivery";
+}
+
+/** The other half of that pair, so no caller has to invent it. */
+export const DEPOSIT_DUE_NOW_LABEL = "Pay now";
+
+/**
+ * The same fact as depositText(), compressed to fit a badge on a catalogue
+ * card. Separate rather than a truncation of it: "50% deposit required" is a
+ * sentence for somewhere with room to explain, and a card has none — but the
+ * two must still agree, which is why they live together.
+ */
+export function depositBadgeText(percent: number | null | undefined): string | null {
+  if (percent === null || percent === undefined || percent <= 0) return null;
+  return percent >= 100 ? "Prepaid" : `${percent}% deposit`;
 }

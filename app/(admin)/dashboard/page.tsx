@@ -16,6 +16,7 @@ import {
 import { ApiError } from "@/lib/api-client";
 import { useTenant } from "@/lib/hooks/useTenant";
 import { useDashboardSummary } from "@/lib/hooks/useDashboardSummary";
+import { useRole } from "@/lib/hooks/useRole";
 import { PageContainer } from "@/components/shared/PageContainer";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { TableCard } from "@/components/shared/TableCard";
@@ -115,6 +116,7 @@ function DashboardPanelsSkeleton() {
 
 export default function DashboardPage() {
   const { data: tenant } = useTenant();
+  const { canManage } = useRole();
   const { data: summary, isPending, error: queryError } = useDashboardSummary();
 
   const error = queryError
@@ -134,13 +136,15 @@ export default function DashboardPage() {
           description={dateFormatter.format(new Date())}
           action={
             <>
-              <Link
-                href="/products/new"
-                className={cn(buttonVariants({ variant: "outline" }), controls.button)}
-              >
-                <Plus className="size-4" />
-                Add product
-              </Link>
+              {canManage && (
+                <Link
+                  href="/products/new"
+                  className={cn(buttonVariants({ variant: "outline" }), controls.button)}
+                >
+                  <Plus className="size-4" />
+                  Add product
+                </Link>
+              )}
               <Link href="/pos" className={cn(buttonVariants(), controls.button)}>
                 New sale
               </Link>

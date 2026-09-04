@@ -153,7 +153,22 @@ export function PlatformInvoiceTable({
             </TableCell>
 
             <TableCell>
-              <InvoiceStatusBadge invoice={invoice} />
+              <div className="flex flex-col items-start gap-1">
+                <InvoiceStatusBadge invoice={invoice} />
+                {/* Void has two causes that read identically without it: the
+                    shop changed plan (or staff changed its billing currency)
+                    before paying, versus an intent that expired with no
+                    transfer against it. The note is the only thing that says
+                    which. */}
+                {invoice.status === "void" && invoice.note && (
+                  <span
+                    className={cn(typography.muted, "max-w-56 text-xs text-pretty")}
+                    title={invoice.note}
+                  >
+                    {invoice.note}
+                  </span>
+                )}
+              </div>
             </TableCell>
 
             <TableCell className="text-right">

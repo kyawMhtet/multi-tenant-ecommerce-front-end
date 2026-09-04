@@ -5,7 +5,17 @@ import { usePathname, useRouter } from "next/navigation";
 import { AdminSidebar } from "@/components/admin/AdminSidebar";
 import { AdminMobileNav } from "@/components/admin/AdminMobileNav";
 import { SubscriptionBanner } from "@/components/admin/SubscriptionBanner";
-import { getStoredToken } from "@/lib/auth";
+import { ShopSuspendedNotice } from "@/components/admin/ShopSuspendedNotice";
+import { PageContainer } from "@/components/shared/PageContainer";
+import { ApiErrorState } from "@/components/shared/ApiErrorState";
+import { ApiError } from "@/lib/api-client";
+import { useMe } from "@/lib/hooks/useMe";
+import {
+  clearStoredTenantSlug,
+  clearStoredToken,
+  clearStoredUserName,
+  getStoredToken,
+} from "@/lib/auth";
 
 // Routes under (admin) that don't require a token. Update as more
 // unauthenticated admin routes (e.g. password reset) are added.
@@ -55,11 +65,27 @@ export default function AdminLayout({
     }
   }, [pathname, isPublicPath, router]);
 
+  const me = useMe({ enabled: !isPublicPath && isChecked && isAuthed });
+
+  const isTokenDead = me.error instanceof ApiError && me.error.status === 401;
+
+  useEffect(() => {
+    if (!isTokenDead) return;
+    clearStoredToken();
+    clearStoredTenantSlug();
+    clearStoredUserName();
+    router.replace("/login");
+  }, [isTokenDead, router]);
+
   if (isPublicPath) {
     return <>{children}</>;
   }
 
-  if (!isChecked || !isAuthed) {
+  if (!isChecked || !isAuthed || isTokenDead) {
+    return null;
+  }
+
+  if (me.isPending) {
     return null;
   }
 
@@ -73,8 +99,17 @@ export default function AdminLayout({
             warning only visible on the page you happened to open is a warning
             that arrives too late. Mounted inside the authed branch, so it
             never fires a billing request from /login or /register. */}
+        <ShopSuspendedNotice />
         <SubscriptionBanner />
-        <main className="min-w-0 flex-1">{children}</main>
+        <main className="min-w-0 flex-1">
+          {me.isError ? (
+            <PageContainer size="md">
+              <ApiErrorState error={me.error} fallback="Could not load your account." />
+            </PageContainer>
+          ) : (
+            children
+          )}
+        </main>
       </div>
     </div>
   );

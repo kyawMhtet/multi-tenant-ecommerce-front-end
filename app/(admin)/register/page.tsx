@@ -213,6 +213,7 @@ export default function RegisterPage() {
       footerText="Already have an account?"
       footerLinkHref="/login"
       footerLinkLabel="Sign in"
+      size="md"
     >
       <form onSubmit={handleSubmit} className="flex flex-col gap-5">
         <RegisterForm

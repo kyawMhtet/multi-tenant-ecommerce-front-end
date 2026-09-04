@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { LayoutDashboard, Package, ShoppingCart, ReceiptText, BarChart3, Wallet, CreditCard, Settings, LogOut } from "lucide-react";
+import { LayoutDashboard, Package, ShoppingCart, ReceiptText, BarChart3, Wallet, CreditCard, Settings, Users, LogOut } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -11,7 +11,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useQueryClient } from "@tanstack/react-query";
 import { useTenant } from "@/lib/hooks/useTenant";
+import { useRole } from "@/lib/hooks/useRole";
+import { roleAtLeast } from "@/lib/roles";
+import type { ShopRole } from "@/lib/types";
 import {
   clearStoredTenantSlug,
   clearStoredToken,
@@ -26,29 +30,32 @@ import { cn } from "@/lib/utils";
 // Grouped, because a flat run of six links gives the eye nothing to hold
 // onto. "Sell" is what staff touch during a shift; "Manage" is what an
 // owner touches between them.
-const NAV_SECTIONS = [
+const NAV_SECTIONS: {
+  label: string;
+  links: { href: string; label: string; icon: typeof LayoutDashboard; minimum: ShopRole }[];
+}[] = [
   {
     label: "Sell",
     links: [
-      { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-      { href: "/pos", label: "POS", icon: ShoppingCart },
-      { href: "/orders", label: "Orders", icon: ReceiptText },
+      { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, minimum: "cashier" },
+      { href: "/pos", label: "POS", icon: ShoppingCart, minimum: "cashier" },
+      { href: "/orders", label: "Orders", icon: ReceiptText, minimum: "cashier" },
     ],
   },
   {
     label: "Manage",
     links: [
-      { href: "/products", label: "Products", icon: Package },
-      { href: "/payments", label: "Payments", icon: Wallet },
-      { href: "/reports", label: "Reports", icon: BarChart3 },
+      { href: "/products", label: "Products", icon: Package, minimum: "cashier" },
+      { href: "/payments", label: "Payments", icon: Wallet, minimum: "owner" },
+      { href: "/reports", label: "Reports", icon: BarChart3, minimum: "manager" },
       // A top-level link rather than something buried in the account menu,
       // because the shop that most needs to reach it is the one that has
       // gone read-only — and every prompt this app shows for a 402 points
       // here.
-      { href: "/settings/billing", label: "Billing", icon: CreditCard },
+      { href: "/settings/billing", label: "Billing", icon: CreditCard, minimum: "owner" },
     ],
   },
-] as const;
+];
 
 // Shared between the desktop <aside> and the mobile Sheet drawer — same
 // tenant block, nav links, and account menu either way. onNavigate closes
@@ -67,7 +74,14 @@ function SidebarNav({
 }) {
   const pathname = usePathname();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { data: tenant } = useTenant();
+  const { role, isOwner, canManage } = useRole();
+
+  const sections = NAV_SECTIONS.map((section) => ({
+    ...section,
+    links: section.links.filter((link) => roleAtLeast(role, link.minimum)),
+  })).filter((section) => section.links.length > 0);
   // Never renders during SSR — AdminLayout gates this component behind the
   // client-side auth check and returns null until that resolves, so this
   // only ever mounts post-hydration. Reading localStorage directly here
@@ -78,6 +92,7 @@ function SidebarNav({
     clearStoredToken();
     clearStoredTenantSlug();
     clearStoredUserName();
+    queryClient.clear();
     router.push("/login");
   }
 
@@ -97,7 +112,7 @@ function SidebarNav({
       </div>
 
       <nav className="flex flex-1 flex-col gap-5 overflow-y-auto px-3 py-4">
-        {NAV_SECTIONS.map((section) => (
+        {sections.map((section) => (
           <div key={section.label} className="flex flex-col gap-1">
             <p className={cn(typography.microLabel, "px-3 pb-1")}>{section.label}</p>
             {section.links.map((link) => {
@@ -136,15 +151,27 @@ function SidebarNav({
             <span className="flex-1 truncate font-medium">{userName ?? "Account"}</span>
           </DropdownMenuTrigger>
           <DropdownMenuContent side="top" align="start" className="w-(--anchor-width)">
-            <DropdownMenuItem
-              onClick={() => {
-                onNavigate?.();
-                router.push("/settings");
-              }}
-            >
-              <Settings /> Settings
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
+            {canManage && (
+              <DropdownMenuItem
+                onClick={() => {
+                  onNavigate?.();
+                  router.push("/settings");
+                }}
+              >
+                <Settings /> Settings
+              </DropdownMenuItem>
+            )}
+            {isOwner && (
+              <DropdownMenuItem
+                onClick={() => {
+                  onNavigate?.();
+                  router.push("/settings/staff");
+                }}
+              >
+                <Users /> Staff
+              </DropdownMenuItem>
+            )}
+            {(canManage || isOwner) && <DropdownMenuSeparator />}
             <DropdownMenuItem variant="destructive" onClick={handleLogout}>
               <LogOut /> Logout
             </DropdownMenuItem>

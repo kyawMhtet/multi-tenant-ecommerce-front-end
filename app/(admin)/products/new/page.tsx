@@ -4,13 +4,17 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { useCreateProduct } from "@/lib/hooks/useCreateProduct";
+import { useRole } from "@/lib/hooks/useRole";
 import { PageContainer } from "@/components/shared/PageContainer";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { ApiErrorState } from "@/components/shared/ApiErrorState";
+import { RoleRequiredNotice } from "@/components/admin/RoleRequiredNotice";
 import { ProductForm, type ProductFormProps, type ProductFormState } from "@/components/admin/ProductForm";
 import {
   PreorderFields,
+  preorderDepositPercentValue,
   preorderLeadTimeValue,
+  validatePreorderDepositPercent,
   validatePreorderLeadTime,
 } from "@/components/admin/PreorderFields";
 import { Button } from "@/components/ui/button";
@@ -20,6 +24,15 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Card, CardContent } from "@/components/ui/card";
 import { controls, typography } from "@/lib/design-tokens";
+import {
+  DiscountFields,
+  discountPayload,
+  validateDiscount,
+  type DiscountErrors,
+  type DiscountFormState,
+} from "@/components/admin/DiscountFields";
+import { useTenant } from "@/lib/hooks/useTenant";
+import { DEFAULT_TIMEZONE } from "@/lib/timezones";
 
 interface FormState extends ProductFormState {
   sku: string;
@@ -29,7 +42,7 @@ interface FormState extends ProductFormState {
   stock: string;
   allowPreorder: boolean;
   preorderLeadTimeDays: string;
-  preorderRequiresPrepayment: boolean;
+  preorderDepositPercent: string;
 }
 
 const initialForm: FormState = {
@@ -46,7 +59,7 @@ const initialForm: FormState = {
   stock: "",
   allowPreorder: false,
   preorderLeadTimeDays: "",
-  preorderRequiresPrepayment: false,
+  preorderDepositPercent: "0",
 };
 
 function validate(form: FormState): Partial<Record<keyof FormState, string>> {
@@ -74,6 +87,9 @@ function validate(form: FormState): Partial<Record<keyof FormState, string>> {
   const leadTimeError = validatePreorderLeadTime(form.preorderLeadTimeDays);
   if (leadTimeError) errors.preorderLeadTimeDays = leadTimeError;
 
+  const depositError = validatePreorderDepositPercent(form.preorderDepositPercent);
+  if (depositError) errors.preorderDepositPercent = depositError;
+
   return errors;
 }
 
@@ -82,7 +98,18 @@ export default function NewProductPage() {
   const [form, setForm] = useState<FormState>(initialForm);
   const [errors, setErrors] = useState<Partial<Record<keyof FormState, string>>>({});
   const [pendingImages, setPendingImages] = useState<File[]>([]);
+  const [discount, setDiscount] = useState<DiscountFormState>({
+    type: "percent",
+    value: "",
+    startsOn: "",
+    lastDayOn: "",
+  });
+  const [discountErrors, setDiscountErrors] = useState<DiscountErrors>({});
   const createProduct = useCreateProduct();
+  const { canManage } = useRole();
+  const { data: tenant } = useTenant();
+  const timeZone = tenant?.timezone ?? DEFAULT_TIMEZONE;
+  const currency = tenant?.currency ?? null;
 
   function updateField<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -93,8 +120,11 @@ export default function NewProductPage() {
     createProduct.reset();
 
     const validationErrors = validate(form);
+    const discountValidation = validateDiscount(discount, false);
     setErrors(validationErrors);
+    setDiscountErrors(discountValidation);
     if (Object.keys(validationErrors).length > 0) return;
+    if (Object.keys(discountValidation).length > 0) return;
 
     try {
       await createProduct.mutateAsync({
@@ -109,7 +139,8 @@ export default function NewProductPage() {
           current_stock: Number(form.stock),
           allow_preorder: form.allowPreorder,
           preorder_lead_time_days: preorderLeadTimeValue(form.preorderLeadTimeDays),
-          preorder_requires_prepayment: form.preorderRequiresPrepayment,
+          preorder_deposit_percent: preorderDepositPercentValue(form.preorderDepositPercent),
+          ...discountPayload(discount, timeZone),
         },
         images: pendingImages,
       });
@@ -121,6 +152,17 @@ export default function NewProductPage() {
     }
   }
 
+
+  if (!canManage) {
+    return (
+      <PageContainer size="lg">
+        <div className="flex flex-col gap-6">
+          <PageHeader title="Add product" backHref="/products" backLabel="Back to products" />
+          <RoleRequiredNotice minimum="manager" />
+        </div>
+      </PageContainer>
+    );
+  }
 
   return (
     <PageContainer size="lg">
@@ -234,13 +276,32 @@ export default function NewProductPage() {
               <PreorderFields
                 allowPreorder={form.allowPreorder}
                 leadTimeDays={form.preorderLeadTimeDays}
-                requiresPrepayment={form.preorderRequiresPrepayment}
+                depositPercent={form.preorderDepositPercent}
                 onAllowPreorderChange={(value) => updateField("allowPreorder", value)}
                 onLeadTimeChange={(value) => updateField("preorderLeadTimeDays", value)}
-                onRequiresPrepaymentChange={(value) =>
-                  updateField("preorderRequiresPrepayment", value)
+                onDepositPercentChange={(value) =>
+                  updateField("preorderDepositPercent", value)
                 }
                 error={errors.preorderLeadTimeDays}
+                depositError={errors.preorderDepositPercent}
+              />
+
+              <DiscountFields
+                variant={{
+                  selling_price: form.sellingPrice || "0",
+                  discount_type: null,
+                  discount_value: "0",
+                  discount_starts_at: null,
+                  discount_ends_at: null,
+                  discount_active: false,
+                }}
+                form={discount}
+                onChange={setDiscount}
+                errors={discountErrors}
+                timeZone={timeZone}
+                currency={currency}
+                onRemove={() => setDiscount({ type: "percent", value: "", startsOn: "", lastDayOn: "" })}
+                isRemoving={false}
               />
 
               {/* Creating a product is the one write most likely to meet a

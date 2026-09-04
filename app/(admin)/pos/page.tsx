@@ -6,6 +6,7 @@ import { ImageOff, PackageSearch, SearchX } from "lucide-react";
 import { ApiError } from "@/lib/api-client";
 import { useProducts } from "@/lib/hooks/useProducts";
 import { useCreateOrder } from "@/lib/hooks/useCreateOrder";
+import { useRole } from "@/lib/hooks/useRole";
 import type { Order, Product, ProductVariant } from "@/lib/types";
 import { PageContainer } from "@/components/shared/PageContainer";
 import { PageHeader } from "@/components/shared/PageHeader";
@@ -66,6 +67,7 @@ export default function PosPage() {
   const [order, setOrder] = useState<Order | null>(null);
   const [pickerProduct, setPickerProduct] = useState<Product | null>(null);
   const createOrder = useCreateOrder();
+  const { canManage } = useRole();
 
   const loadError = loadErrorObj
     ? loadErrorObj instanceof ApiError
@@ -246,11 +248,17 @@ export default function PosPage() {
               <EmptyState
                 icon={PackageSearch}
                 title="Nothing to sell yet"
-                description="Products need at least one variant with a price before they can be rung up here."
+                description={
+                  canManage
+                    ? "Products need at least one variant with a price before they can be rung up here."
+                    : "Ask a manager or the shop owner to add a product before you can ring anything up."
+                }
                 action={
-                  <Link href="/products/new" className={cn(buttonVariants(), controls.button)}>
-                    Add a product
-                  </Link>
+                  canManage ? (
+                    <Link href="/products/new" className={cn(buttonVariants(), controls.button)}>
+                      Add a product
+                    </Link>
+                  ) : undefined
                 }
               />
             )

@@ -168,6 +168,31 @@ export const orderStatusClassName: Record<string, string> = {
   refunded: "bg-red-100 text-red-800",
 };
 
+// Order.payment_status, and deliberately its OWN map rather than a reuse of
+// the one above. They are different columns answering different questions —
+// status is the commercial lifecycle, payment_status is the money — and
+// "partial" has no counterpart in the first: a deposit has landed and the
+// balance hasn't, while the order is still legitimately "pending" because the
+// shop hasn't sourced the goods yet. Keyed loosely, same as above.
+export const paymentStatusLabel: Record<string, string> = {
+  unpaid: "Unpaid",
+  partial: "Part-paid",
+  paid: "Paid",
+  refunded: "Refunded",
+};
+
+// "partial" borrows the backorder violet rather than an amber warning or a
+// red failure, because it is neither: a deposit collected against a preorder
+// is the expected happy path for this rail, and it's the same fact as the
+// preorder badge sitting next to it (stock owed to a customer who has already
+// committed money).
+export const paymentStatusClassName: Record<string, string> = {
+  unpaid: "bg-amber-100 text-amber-800",
+  partial: backorderClassName,
+  paid: "bg-emerald-100 text-emerald-800",
+  refunded: "bg-red-100 text-red-800",
+};
+
 // Product-level storefront visibility, shown in the products table. The
 // asymmetry is deliberate: "active" is the expected default, so it stays
 // quiet (a live-dot + muted label); "inactive" — the product is hidden from
@@ -182,6 +207,21 @@ export const orderSourceLabel: Record<string, string> = {
   pos: "POS",
   online: "Online",
 };
+
+// A variant's promotion, as the four states lib/discount.ts derives (none is
+// never rendered). Deliberately NOT another coloured wash for the live one:
+// a promotion is an offer, which is exactly what noticeTone.accent already
+// says with the app's single accent — and it has to sit in the same table
+// cell as a stock badge without competing with it for "act on me".
+//
+// Scheduled borrows the trial sky: something real that hasn't started yet.
+// Ended is muted for the same reason a void invoice is — it's history the
+// shop should still be able to find, not a state it has to act on.
+export const discountStateStyles = {
+  active: { label: "On sale", badgeClassName: "bg-primary/10 text-primary" },
+  scheduled: { label: "Scheduled", badgeClassName: "bg-sky-100 text-sky-900" },
+  ended: { label: "Ended", badgeClassName: "bg-muted text-muted-foreground" },
+} as const;
 
 export const productStatusStyles = {
   active: { label: "Active", dotClassName: "bg-emerald-500" },

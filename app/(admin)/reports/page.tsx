@@ -11,6 +11,7 @@ import {
   Wallet,
 } from "lucide-react";
 import { useTenant } from "@/lib/hooks/useTenant";
+import { useRole } from "@/lib/hooks/useRole";
 import { useSalesProfitReport } from "@/lib/hooks/useSalesProfitReport";
 import type { SalesProfitReportParams } from "@/lib/types";
 import { PageContainer } from "@/components/shared/PageContainer";
@@ -19,6 +20,7 @@ import { TableCard } from "@/components/shared/TableCard";
 import { ApiErrorState } from "@/components/shared/ApiErrorState";
 import { StatCard } from "@/components/shared/StatCard";
 import { DateRangePicker } from "@/components/shared/DateRangePicker";
+import { RoleRequiredNotice } from "@/components/admin/RoleRequiredNotice";
 import { SalesProfitChart } from "@/components/admin/SalesProfitChart";
 import { OrderCountChart } from "@/components/admin/OrderCountChart";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -58,12 +60,25 @@ function ReportsSkeleton() {
 
 export default function ReportsPage() {
   const { data: tenant } = useTenant();
+  const { canManage } = useRole();
   const [params, setParams] = useState<SalesProfitReportParams>({});
 
-  const { data: report, isPending, error: queryError } = useSalesProfitReport(params);
-
+  const { data: report, isPending, error: queryError } = useSalesProfitReport(params, {
+    enabled: canManage,
+  });
 
   const currency = tenant?.currency ?? "USD";
+
+  if (!canManage) {
+    return (
+      <PageContainer size="full">
+        <div className="flex flex-col gap-6">
+          <PageHeader title="Reports" description="Sales and profit over time." />
+          <RoleRequiredNotice minimum="manager" />
+        </div>
+      </PageContainer>
+    );
+  }
 
   return (
     <PageContainer size="full">

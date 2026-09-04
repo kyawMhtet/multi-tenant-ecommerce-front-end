@@ -7,11 +7,12 @@ import { usePaymentMethods } from "@/lib/hooks/usePaymentMethods";
 import { useUpdateOrder } from "@/lib/hooks/useUpdateOrder";
 import { ErrorState } from "@/components/shared/ErrorState";
 import { ImageLightbox } from "@/components/shared/ImageLightbox";
-import { Badge } from "@/components/ui/badge";
+import { PaymentStatusBadge } from "@/components/admin/PaymentStatusBadge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { formatCurrency } from "@/lib/currency";
-import { controls, orderStatusClassName, typography } from "@/lib/design-tokens";
+import { orderAmountPaid, orderBalanceDue } from "@/lib/order-items";
+import { controls, typography } from "@/lib/design-tokens";
 import type { Order } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -47,6 +48,11 @@ export function OrderPaymentPanel({ order }: { order: Order }) {
     : null;
 
   const isPaid = order.payment_status === "paid";
+  // A deposit landed and the balance hasn't. Expected on a preorder, not a
+  // failure — the shop still has to source the goods and collect the rest.
+  const isPartPaid = order.payment_status === "partial";
+  const amountPaid = orderAmountPaid(order);
+  const balanceDue = orderBalanceDue(order);
   // cancelled_at is checked alongside the status string because it's the
   // fact rather than a rendering of it — accepting an order that's already
   // been cancelled (and may owe the customer a refund) must not be one
@@ -88,13 +94,28 @@ export function OrderPaymentPanel({ order }: { order: Order }) {
             <span className={typography.sectionHeading}>Payment</span>
             {methodLabel && <span className={typography.muted}>{methodLabel}</span>}
           </div>
-          <Badge
-            variant="outline"
-            className={cn("capitalize", orderStatusClassName[order.payment_status])}
-          >
-            {order.payment_status}
-          </Badge>
+          <PaymentStatusBadge status={order.payment_status} />
         </div>
+
+        {/* The split, for an order that has only been part-paid. Nothing else
+            in the admin says how much is still to come — payment_status alone
+            gives the shop a word where it needs a number to collect. */}
+        {isPartPaid && amountPaid !== null && balanceDue !== null && (
+          <div className="flex flex-wrap items-end justify-between gap-4 rounded-lg border bg-muted/30 p-3">
+            <div className="flex flex-col gap-0.5">
+              <span className={typography.microLabel}>Deposit received</span>
+              <span className="text-sm font-medium tabular-nums">
+                {formatCurrency(amountPaid, order.currency)}
+              </span>
+            </div>
+            <div className="flex flex-col gap-0.5 text-right">
+              <span className={typography.microLabel}>Balance to collect</span>
+              <span className="text-base font-semibold tabular-nums">
+                {formatCurrency(balanceDue, order.currency)}
+              </span>
+            </div>
+          </div>
+        )}
 
         {payments.map((payment) => (
           <div key={payment.id} className="flex flex-col gap-3 rounded-lg border p-3">
@@ -139,7 +160,11 @@ export function OrderPaymentPanel({ order }: { order: Order }) {
               disabled={updateOrder.isPending}
               onClick={handleAccept}
             >
-              {updateOrder.isPending ? "Accepting..." : "Accept order & mark paid"}
+              {updateOrder.isPending
+                ? "Accepting..."
+                : isPartPaid
+                  ? "Mark the balance collected"
+                  : "Accept order & mark paid"}
             </Button>
             <span className="flex items-start gap-1.5 text-xs text-amber-700">
               <AlertTriangle className="mt-px size-3.5 shrink-0" />

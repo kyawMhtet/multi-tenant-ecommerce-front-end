@@ -5,6 +5,7 @@ import { Printer } from "lucide-react";
 import { ApiError } from "@/lib/api-client";
 import { useOrder } from "@/lib/hooks/useOrder";
 import { useTenant } from "@/lib/hooks/useTenant";
+import { useRole } from "@/lib/hooks/useRole";
 import { PageContainer } from "@/components/shared/PageContainer";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { ErrorState } from "@/components/shared/ErrorState";
@@ -90,6 +91,7 @@ export default function OrderDetailPage({
   const { id } = use(params);
   const { data: order, error: queryError } = useOrder(id);
   const { data: tenant } = useTenant();
+  const { canManage } = useRole();
 
   const error = queryError
     ? queryError instanceof ApiError
@@ -178,7 +180,7 @@ export default function OrderDetailPage({
               both above the order lines, because both change what staff do
               with everything below them. */}
           <OrderCancellationPanel order={order} />
-          <OrderRefundPanel order={order} />
+          <OrderRefundPanel order={order} canRefund={canManage} />
 
           <OrderFulfillmentPanel order={order} />
 
@@ -261,7 +263,7 @@ export default function OrderDetailPage({
           {/* Last, and quiet: cancelling is the one irreversible thing on
               this screen, so it sits below everything the shop should read
               first rather than beside "Print receipt" in the header. */}
-          <CancelOrderDialog order={order} />
+          {canManage && <CancelOrderDialog order={order} />}
         </div>
       </PageContainer>
 

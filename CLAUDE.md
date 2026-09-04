@@ -48,8 +48,10 @@
   one product, `["storefront-product", slug]` for the public product
   page, `["tenant"]` for the shop profile, `["public-shop"]` for its
   public counterpart, `["billing"]` for the subscription payload and
-  `["billing", "invoices", page]` for its history, `["platform-me"]` and
-  `["platform-billing", "pending", page]` for the staff console. Keep new
+  `["billing", "invoices", page]` for its history, `["me"]` for the signed-in
+  user, `["staff"]` for the shop's own logins, `["platform-me"]` and
+  `["platform-billing", "pending", page]` / `["platform-billing",
+  "awaiting-transfer", page]` for the staff console. Keep new
   resources consistent with this so invalidateQueries's prefix matching
   keeps working (invalidating `["products"]` also matches
   `["products", id]`, and `["billing"]` also matches the invoice pages).
@@ -115,6 +117,87 @@
 - Only render rails present in a plan's own `rails` array. Card is
   permanently absent for MMK shops (Stripe doesn't support the currency), so
   a hardcoded card button is a dead button, not a styling choice.
+- The manual rail's staff queue is TWO lists, and conflating them is what the
+  split undid. GET /billing/pending is only invoices WITH a screenshot — one
+  decision per row. GET /billing/awaiting-transfer is the proofless ones
+  (proof_url always null): a chase list, led by shop.owner_email /
+  owner_phone and by age, not by the invoice. It is not read-only — a transfer
+  spotted on the bank statement still has to be settleable from there, so
+  approve and reject stay reachable, just `quiet`.
+- A proofless intent older than 30 days is voided lazily, the next time that
+  shop asks to pay, with note "Expired — no transfer was received against this
+  reference." So `void` has two causes; the ledger prints `note` beneath the
+  badge because "Superseded" alone can't tell them apart.
+
+## Preorder deposits
+- `preorder_deposit_percent` (0-100) replaced the old
+  `preorder_requires_prepayment` boolean everywhere. 0 is no deposit, 100 is
+  pay in full, 50 is half — a strict superset, so the extremes behave as
+  before.
+- ANY value above 0 hides cash on delivery, not just 100: COD collects nothing
+  at the moment of ordering, so "half now" is exactly as impossible on it as
+  "all now". The percentage decides HOW MUCH, never WHETHER the method can
+  take it. Server-side that's a 422 on a cod cart carrying a deposit.
+- On StorefrontProductVariant it is `number | null`, and null means "not a
+  preorder line", NOT zero — withheld unless stock_status is "preorder", same
+  as preorder_lead_time_days, so a deposit can never be rendered against
+  something on the shelf.
+- cartDepositDue() in lib/cart.ts rounds PER LINE and then sums, because
+  OrderService writes deposit_amount per order ITEM. Summing first and
+  rounding once can differ by a unit from what is actually charged. Its
+  roundMoney() goes through toFixed before Math.round to reproduce PHP's
+  round() on values like 2.675 — verified against php directly, not assumed.
+- The deposit covers goods only, so the delivery fee always falls in the
+  balance. lib/preorder.ts owns the wording (depositText,
+  depositBalanceLabel) for the same reason it owns preorderWaitText: the
+  panel, cart and checkout summary must not drift.
+- `payment_status` now includes "partial" — a deposit landed, the balance
+  hasn't. It is the expected happy path for a preorder, NOT a failure, so it
+  takes the backorder violet rather than a warning colour, and `status`
+  deliberately stays "pending" beside it. paymentStatusLabel /
+  paymentStatusClassName in lib/design-tokens.ts are its own map, separate
+  from orderStatusClassName — two columns, two meanings.
+
+## Roles: one ladder, and /me is the only source
+- A shop has MANY logins now. GET /api/v1/me is what says who is signed in —
+  read it through useMe()/useRole(), never from the login response. Caching a
+  role at sign-in means an owner's demotion doesn't take effect until the
+  demoted person happens to log out, which is the one case it exists for.
+- app/(admin)/layout.tsx gates on that request and renders nothing until it
+  resolves, so every useRole() below it already has an answer — a role check
+  that ran early would flash owner-only controls at a cashier.
+- Strict ladder, no matrix: owner ⊃ manager ⊃ cashier, and
+  roleAtLeast(role, "manager") in lib/roles.ts is every check in the app.
+  `role:manager` server-side is a FLOOR, not an exact match.
+- Hide what the role can't do rather than letting it 403 on click: the API
+  refuses regardless, but a button that always errors is worse than no button.
+  Screens gate their QUERY too (`enabled: isOwner` on useBilling, useStaff,
+  useStripeStatus, `enabled: canManage` on useSalesProfitReport) — otherwise
+  every non-owner fires a guaranteed 403 on page load.
+- Manager+: product/variant writes and restock, order cancel and refund,
+  courier writes, the sales-profit report. Owner only: staff, all of /billing,
+  PATCH /tenant, payment-method config and Stripe onboarding. Everything else —
+  POS, orders, dispatch, reads, the storefront — is deliberately open to a
+  cashier.
+- ProductVariant.buying_price is OPTIONAL in lib/types.ts because
+  ProductVariantResource omits the key entirely for a cashier (absent, not
+  null). Anything reading cost must handle that, and a margin/cost column is
+  hidden for cashiers rather than rendered blank.
+- Three refusals that must never be conflated, all handled by ApiErrorState:
+  403 `insufficient_role` (wrong role — "ask the shop owner", NEVER an upgrade
+  prompt), 403 `shop_suspended` (platform staff locked this shop out), and 402
+  `plan_limit_exceeded` with limit "staff" (out of seats — this one IS the
+  upgrade prompt). parseAccessError() in lib/access-error.ts owns the two 403s
+  and runs BEFORE parseBillingError, which only ever looks at 402/422.
+- A 422 `staff_action_unavailable` carries a rule about that one action ("You
+  cannot remove your own account.") — show its `message` verbatim; it is not
+  an upgrade prompt either.
+- Seats count EVERY login including the owner, and `meta.limit: null` means
+  unlimited, not unknown. Build the role dropdown from `meta.roles`, not from
+  SHOP_ROLES, so a role added server-side needs no frontend release.
+- Signing in clears the whole React Query cache (useLogin), and so does
+  signing out. Without that, the next user in the same tab briefly renders
+  against the previous user's role and shop data.
 
 ## Platform admin: a second, separate identity
 - (platform) is OUR staff reviewing bank transfers, not shop users. Separate

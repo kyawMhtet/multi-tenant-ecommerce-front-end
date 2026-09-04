@@ -1,5 +1,7 @@
 import { ApiError } from "@/lib/api-client";
+import { parseAccessError } from "@/lib/access-error";
 import { parseBillingError } from "@/lib/billing-error";
+import { AccessNotice } from "@/components/shared/AccessNotice";
 import { BillingNotice } from "@/components/shared/BillingNotice";
 import { ErrorState } from "@/components/shared/ErrorState";
 
@@ -32,6 +34,9 @@ export function ApiErrorState({
   className?: string;
 }) {
   if (!error) return null;
+
+  const denial = parseAccessError(error);
+  if (denial) return <AccessNotice refusal={denial} className={className} />;
 
   const refusal = parseBillingError(error);
   if (refusal) return <BillingNotice refusal={refusal} className={className} />;

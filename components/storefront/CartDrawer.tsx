@@ -7,8 +7,12 @@ import { useCreateOnlineOrder } from "@/lib/hooks/useCreateOnlineOrder";
 import { usePublicPaymentMethods } from "@/lib/hooks/usePublicPaymentMethods";
 import { usePublicShop } from "@/lib/hooks/usePublicShop";
 import { formatMoney } from "@/lib/currency";
-import { cartRequiresPrepayment, deliveryFeeFor } from "@/lib/cart";
-import { preorderWaitText } from "@/lib/preorder";
+import { cartDepositDue, cartRequiresPrepayment, deliveryFeeFor } from "@/lib/cart";
+import {
+  DEPOSIT_DUE_NOW_LABEL,
+  depositBalanceLabel,
+  preorderWaitText,
+} from "@/lib/preorder";
 import type { FulfillmentType } from "@/lib/types";
 import { storefrontType } from "@/lib/design-tokens";
 import { useCart } from "@/components/storefront/CartProvider";
@@ -28,7 +32,9 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
 // The backend's own `method` key for cash on delivery — the one option a
-// prepaid preorder can't use, and the only method this file singles out.
+// preorder carrying a deposit can't use (it collects nothing at the moment of
+// ordering, so half is as impossible as all), and the only method this file
+// singles out.
 const COD_METHOD = "cod";
 
 const primaryButton = cn(
@@ -139,6 +145,13 @@ export function CartDrawer() {
   // whose profile hasn't loaded yet — a Total that appears at the subtotal
   // and then climbs is the exact thing this block exists to avoid.
   const showsDelivery = Boolean(shop?.allows_delivery);
+
+  // What's actually payable at the moment of ordering, and what follows later.
+  // The deposit covers goods only — OrderService writes it per order ITEM — so
+  // the delivery fee always sits in the balance, whichever way it's fulfilled.
+  const orderTotal = subtotal + deliveryFee;
+  const depositDue = cartDepositDue(lines);
+  const balanceLater = Math.max(0, orderTotal - depositDue);
 
   // Preselect the shop's first method once the list arrives, and drop a
   // selection that no longer exists (the shop turned it off mid-session).
@@ -437,6 +450,33 @@ export function CartDrawer() {
                     )}
                   </>
                 )}
+
+                {/* The split, and the number that actually matters on a
+                    preorder: what leaves their account today. Shown here
+                    rather than at the payment step, because by then they have
+                    already filled in an address on the strength of a total
+                    that turned out not to be what was being asked for. */}
+                {depositDue > 0 && (
+                  <>
+                    <div className="flex items-center justify-between border-t border-black/10 pt-2 text-sm">
+                      <span className="font-medium text-storefront-ink">
+                        {DEPOSIT_DUE_NOW_LABEL}
+                      </span>
+                      <span className="text-base font-semibold tabular-nums text-storefront-ink">
+                        {formatMoney(depositDue, currency)}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">
+                        {depositBalanceLabel(effectiveFulfillment)}
+                      </span>
+                      <span className="tabular-nums text-muted-foreground">
+                        {formatMoney(balanceLater, currency)}
+                      </span>
+                    </div>
+                  </>
+                )}
               </div>
 
               {hasPreorder && (
@@ -540,7 +580,7 @@ export function CartDrawer() {
                   // can't use it. Naming the way out matters — the customer can
                   // drop the preorder line and pay on delivery for the rest.
                   <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                    Preorder items must be paid in advance, and this shop only takes cash on
+                    Preorder items need a deposit when you order, and this shop only takes cash on
                     delivery. Remove the preorder item to order the rest, or contact the shop
                     directly.
                   </p>
@@ -557,8 +597,8 @@ export function CartDrawer() {
                       hunted for the missing option is too late to help. */}
                   {codHidden && (
                     <p className="rounded-xl bg-sky-50 px-3.5 py-3 text-sm text-sky-900">
-                      Preorder items must be paid in advance, so cash on delivery isn&apos;t
-                      available for this order.
+                      Preorder items need a deposit when you order, so cash on delivery isn&apos;t
+                      available — it collects nothing at the time of ordering.
                     </p>
                   )}
                   <PaymentMethodPicker

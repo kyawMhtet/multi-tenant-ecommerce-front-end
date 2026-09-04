@@ -7,16 +7,23 @@ import { toast } from "sonner";
 import { getStoredTenantSlug } from "@/lib/auth";
 import { useProduct } from "@/lib/hooks/useProduct";
 import { useUpdateProduct } from "@/lib/hooks/useUpdateProduct";
+import { useRole } from "@/lib/hooks/useRole";
+import { useTenant } from "@/lib/hooks/useTenant";
+import { discountValueLabel, discountWindowLabel } from "@/lib/discount";
+import { DEFAULT_TIMEZONE } from "@/lib/timezones";
 import type { ProductVariant } from "@/lib/types";
 import { PageContainer } from "@/components/shared/PageContainer";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { TableCard } from "@/components/shared/TableCard";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { ApiErrorState } from "@/components/shared/ApiErrorState";
+import { RoleRequiredNotice } from "@/components/admin/RoleRequiredNotice";
 import { TableSkeleton } from "@/components/shared/TableSkeleton";
 import { ProductForm, type ProductFormState } from "@/components/admin/ProductForm";
 import { VariantDialog } from "@/components/admin/VariantDialog";
 import { EditVariantDialog } from "@/components/admin/EditVariantDialog";
+import { DiscountBadge } from "@/components/admin/DiscountBadge";
+import { VariantPrice } from "@/components/admin/VariantPrice";
 import { RestockDialog } from "@/components/admin/RestockDialog";
 import { BackorderBadge } from "@/components/admin/BackorderBadge";
 import { backorderedUnits } from "@/lib/stock";
@@ -41,11 +48,6 @@ function validateProduct(
   if (!form.name.trim()) errors.name = "Name is required.";
   return errors;
 }
-
-const priceFormatter = new Intl.NumberFormat(undefined, {
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
-});
 
 function EditProductSkeleton() {
   return (
@@ -111,6 +113,11 @@ export default function EditProductPage({
 
   const { data: product, error: loadErrorObj } = useProduct(id);
   const updateProduct = useUpdateProduct();
+  const { canManage } = useRole();
+  // A promotion's window is stored in UTC and meant in the shop's zone —
+  // rendering it anywhere else moves a midnight boundary across a day.
+  const { data: tenant } = useTenant();
+  const timeZone = tenant?.timezone ?? DEFAULT_TIMEZONE;
 
 
   const [form, setForm] = useState<ProductFormState | null>(null);
@@ -204,6 +211,17 @@ export default function EditProductPage({
   }
 
 
+  if (!canManage) {
+    return (
+      <PageContainer size="lg">
+        <div className="flex flex-col gap-6">
+          <PageHeader title="Product" backHref="/products" backLabel="Back to products" />
+          <RoleRequiredNotice minimum="manager" />
+        </div>
+      </PageContainer>
+    );
+  }
+
   if (loadErrorObj) {
     return (
       <PageContainer size="lg">
@@ -281,7 +299,10 @@ export default function EditProductPage({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {product.variants.map((variant) => (
+                {product.variants.map((variant) => {
+                  const discountWindow = discountWindowLabel(variant, timeZone);
+
+                  return (
                   <TableRow key={variant.id}>
                     <TableCell className="font-medium">
                       <span className="flex items-center gap-2.5">
@@ -298,8 +319,34 @@ export default function EditProductPage({
                       </span>
                     </TableCell>
                     <TableCell className="text-muted-foreground">{variant.sku}</TableCell>
-                    <TableCell className="tabular-nums">
-                      {priceFormatter.format(Number(variant.selling_price))}
+                    {/* The live price with the list price struck through, and
+                        the promotion's own state beside it — "Scheduled" is a
+                        different thing from "On sale" and a variant showing
+                        one must never read as the other. */}
+                    <TableCell>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <VariantPrice variant={variant} />
+                        <DiscountBadge
+                          variant={variant}
+                          detail={
+                            variant.discount_type
+                              ? discountValueLabel(
+                                  variant.discount_type,
+                                  variant.discount_value,
+                                  tenant?.currency,
+                                )
+                              : null
+                          }
+                        />
+                      </div>
+                      {/* When it runs, on the shop's clock — the end shown as
+                          the last day it runs, never the exclusive boundary
+                          the API actually stores. */}
+                      {discountWindow && (
+                        <span className="mt-0.5 block text-xs text-muted-foreground">
+                          {discountWindow}
+                        </span>
+                      )}
                     </TableCell>
                     <TableCell>
                       <div className="flex flex-wrap items-center gap-2">
@@ -345,7 +392,8 @@ export default function EditProductPage({
                       )}
                     </TableCell>
                   </TableRow>
-                ))}
+                  );
+                })}
               </TableBody>
             </Table>
           )}

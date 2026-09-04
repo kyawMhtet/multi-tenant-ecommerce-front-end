@@ -16,8 +16,19 @@ import { Label } from "@/components/ui/label";
 import { ApiErrorState } from "@/components/shared/ApiErrorState";
 import { ProductImagePicker } from "@/components/admin/ProductImagePicker";
 import {
+  DiscountFields,
+  discountPayload,
+  validateDiscount,
+  type DiscountErrors,
+  type DiscountFormState,
+} from "@/components/admin/DiscountFields";
+import { useTenant } from "@/lib/hooks/useTenant";
+import { DEFAULT_TIMEZONE } from "@/lib/timezones";
+import {
   PreorderFields,
+  preorderDepositPercentValue,
   preorderLeadTimeValue,
+  validatePreorderDepositPercent,
   validatePreorderLeadTime,
 } from "@/components/admin/PreorderFields";
 
@@ -30,7 +41,7 @@ interface VariantFormState {
   stock: string;
   allowPreorder: boolean;
   preorderLeadTimeDays: string;
-  preorderRequiresPrepayment: boolean;
+  preorderDepositPercent: string;
 }
 
 const initialVariantForm: VariantFormState = {
@@ -43,7 +54,7 @@ const initialVariantForm: VariantFormState = {
   allowPreorder: false,
   // "" is "we don't know yet" — never seeded with a number.
   preorderLeadTimeDays: "",
-  preorderRequiresPrepayment: false,
+  preorderDepositPercent: "0",
 };
 
 function validateVariant(
@@ -73,6 +84,9 @@ function validateVariant(
   const leadTimeError = validatePreorderLeadTime(form.preorderLeadTimeDays);
   if (leadTimeError) errors.preorderLeadTimeDays = leadTimeError;
 
+  const depositError = validatePreorderDepositPercent(form.preorderDepositPercent);
+  if (depositError) errors.preorderDepositPercent = depositError;
+
   return errors;
 }
 
@@ -81,7 +95,17 @@ export function VariantDialog({ productId }: { productId: string }) {
   const [form, setForm] = useState<VariantFormState>(initialVariantForm);
   const [errors, setErrors] = useState<Partial<Record<keyof VariantFormState, string>>>({});
   const [pendingImages, setPendingImages] = useState<File[]>([]);
+  const [discount, setDiscount] = useState<DiscountFormState>({
+    type: "percent",
+    value: "",
+    startsOn: "",
+    lastDayOn: "",
+  });
+  const [discountErrors, setDiscountErrors] = useState<DiscountErrors>({});
   const createVariant = useCreateVariant();
+  const { data: tenant } = useTenant();
+  const timeZone = tenant?.timezone ?? DEFAULT_TIMEZONE;
+  const currency = tenant?.currency ?? null;
 
   function updateField<K extends keyof VariantFormState>(key: K, value: VariantFormState[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -93,6 +117,8 @@ export function VariantDialog({ productId }: { productId: string }) {
       setForm(initialVariantForm);
       setErrors({});
       setPendingImages([]);
+      setDiscount({ type: "percent", value: "", startsOn: "", lastDayOn: "" });
+      setDiscountErrors({});
       createVariant.reset();
     }
   }
@@ -102,8 +128,11 @@ export function VariantDialog({ productId }: { productId: string }) {
     createVariant.reset();
 
     const validationErrors = validateVariant(form);
+    const discountValidation = validateDiscount(discount, false);
     setErrors(validationErrors);
+    setDiscountErrors(discountValidation);
     if (Object.keys(validationErrors).length > 0) return;
+    if (Object.keys(discountValidation).length > 0) return;
 
     try {
       await createVariant.mutateAsync({
@@ -117,7 +146,8 @@ export function VariantDialog({ productId }: { productId: string }) {
           current_stock: Number(form.stock),
           allow_preorder: form.allowPreorder,
           preorder_lead_time_days: preorderLeadTimeValue(form.preorderLeadTimeDays),
-          preorder_requires_prepayment: form.preorderRequiresPrepayment,
+          preorder_deposit_percent: preorderDepositPercentValue(form.preorderDepositPercent),
+          ...discountPayload(discount, timeZone),
           images: pendingImages.length > 0 ? pendingImages : undefined,
         },
       });
@@ -135,12 +165,12 @@ export function VariantDialog({ productId }: { productId: string }) {
       <DialogTrigger render={<Button type="button" variant="outline" className={controls.buttonSm} />}>
         Add variant
       </DialogTrigger>
-      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-xl">
+      <DialogContent className="max-h-[90vh] overflow-y-auto p-6 sm:max-w-2xl lg:max-w-3xl">
         <DialogHeader>
           <DialogTitle>Add variant</DialogTitle>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+        <form onSubmit={handleSubmit} className="flex flex-col gap-5">
           <Label className="flex flex-col items-stretch gap-1">
             <span className="text-sm">Variant name</span>
             <Input
@@ -167,7 +197,7 @@ export function VariantDialog({ productId }: { productId: string }) {
             {errors.sku && <span className="text-sm text-destructive">{errors.sku}</span>}
           </Label>
 
-          <div className="flex gap-4">
+          <div className="grid gap-4 sm:grid-cols-2">
             <Label className="flex flex-1 flex-col items-stretch gap-1">
               <span className="text-sm">Buying price</span>
               <Input
@@ -201,7 +231,7 @@ export function VariantDialog({ productId }: { productId: string }) {
             </Label>
           </div>
 
-          <div className="flex gap-4">
+          <div className="grid gap-4 sm:grid-cols-2">
             <Label className="flex flex-1 flex-col items-stretch gap-1">
               <span className="text-sm">Unit</span>
               <Input
@@ -232,13 +262,32 @@ export function VariantDialog({ productId }: { productId: string }) {
           <PreorderFields
             allowPreorder={form.allowPreorder}
             leadTimeDays={form.preorderLeadTimeDays}
-            requiresPrepayment={form.preorderRequiresPrepayment}
+            depositPercent={form.preorderDepositPercent}
             onAllowPreorderChange={(value) => updateField("allowPreorder", value)}
             onLeadTimeChange={(value) => updateField("preorderLeadTimeDays", value)}
-            onRequiresPrepaymentChange={(value) =>
-              updateField("preorderRequiresPrepayment", value)
+            onDepositPercentChange={(value) =>
+              updateField("preorderDepositPercent", value)
             }
             error={errors.preorderLeadTimeDays}
+            depositError={errors.preorderDepositPercent}
+          />
+
+          <DiscountFields
+            variant={{
+              selling_price: form.sellingPrice || "0",
+              discount_type: null,
+              discount_value: "0",
+              discount_starts_at: null,
+              discount_ends_at: null,
+              discount_active: false,
+            }}
+            form={discount}
+            onChange={setDiscount}
+            errors={discountErrors}
+            timeZone={timeZone}
+            currency={currency}
+            onRemove={() => setDiscount({ type: "percent", value: "", startsOn: "", lastDayOn: "" })}
+            isRemoving={false}
           />
 
           <ProductImagePicker
@@ -257,7 +306,7 @@ export function VariantDialog({ productId }: { productId: string }) {
             fallback="Something went wrong. Please try again."
           />
 
-          <DialogFooter>
+          <DialogFooter className="-mx-6 -mb-6">
             <Button type="button" variant="outline" onClick={() => handleOpenChange(false)} className={controls.button}>
               Cancel
             </Button>

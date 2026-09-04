@@ -6,7 +6,7 @@ import { StockBadge } from "@/components/shared/StockBadge";
 import { QuantityStepper } from "@/components/storefront/QuantityStepper";
 import { useCart } from "@/components/storefront/CartProvider";
 import { formatMoney } from "@/lib/currency";
-import { preorderWaitText } from "@/lib/preorder";
+import { depositText, preorderWaitText } from "@/lib/preorder";
 import { storefrontStockLabel, storefrontType } from "@/lib/design-tokens";
 import type { StorefrontProduct, StorefrontProductVariant } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -30,10 +30,12 @@ export function AddToCartPanel({ product, selectedVariant, onSelectVariant }: Ad
   const isOutOfStock = selectedVariant.stock_status === "out_of_stock";
   const isLowStock = selectedVariant.stock_status === "low_stock";
   const isPreorder = selectedVariant.stock_status === "preorder";
+  const salePrice = selectedVariant.sale_price;
   // Said here as well as at checkout, where it's actually enforced: someone
   // who only ever pays cash on delivery should find that out while deciding,
-  // not after they've filled in their address.
-  const needsPrepayment = isPreorder && selectedVariant.preorder_requires_prepayment === true;
+  // not after they've filled in their address. Null unless the variant is
+  // actually on preorder, so an in-stock item can never show a deposit.
+  const deposit = isPreorder ? depositText(selectedVariant.preorder_deposit_percent) : null;
   const hasOtherOptions = product.variants.length > 1;
 
   function handleAddToCart() {
@@ -45,14 +47,14 @@ export function AddToCartPanel({ product, selectedVariant, onSelectVariant }: Ad
         variantSlug: selectedVariant.slug,
         productName: product.name,
         variantLabel: hasOtherOptions ? variantLabel(selectedVariant) : null,
-        unitPrice: selectedVariant.selling_price,
+        unitPrice: salePrice ?? selectedVariant.selling_price,
         currency,
         // The variant's own cover if it has one, else the product's — same
         // precedence as the gallery.
         imageUrl: (selectedVariant.images[0] ?? product.images[0])?.url ?? null,
         stockStatus: selectedVariant.stock_status,
         preorderLeadTimeDays: selectedVariant.preorder_lead_time_days,
-        preorderRequiresPrepayment: selectedVariant.preorder_requires_prepayment,
+        preorderDepositPercent: selectedVariant.preorder_deposit_percent,
       },
       Math.max(1, Math.floor(quantity)),
     );
@@ -63,9 +65,21 @@ export function AddToCartPanel({ product, selectedVariant, onSelectVariant }: Ad
     <div className="flex flex-col gap-7">
       {/* Price ---------------------------------------------------------- */}
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-black/10 pt-6">
-        <span className={cn(storefrontType.priceLarge, "text-storefront-ink")}>
-          {formatMoney(selectedVariant.selling_price, currency)}
-        </span>
+        <div className="flex flex-wrap items-baseline gap-3">
+          <span className={cn(storefrontType.priceLarge, "text-storefront-ink")}>
+            {formatMoney(salePrice ?? selectedVariant.selling_price, currency)}
+          </span>
+          {salePrice !== null && (
+            <span className="text-sm text-muted-foreground line-through">
+              {formatMoney(selectedVariant.selling_price, currency)}
+            </span>
+          )}
+          {selectedVariant.discount_percent !== null && selectedVariant.discount_percent > 0 && (
+            <span className="rounded-full bg-rose-100 px-2 py-1 text-[0.625rem] font-bold tracking-[0.06em] text-rose-800 uppercase">
+              {selectedVariant.discount_percent}% off
+            </span>
+          )}
+        </div>
         <StockBadge
           status={selectedVariant.stock_status}
           label={storefrontStockLabel[selectedVariant.stock_status]}
@@ -125,7 +139,12 @@ export function AddToCartPanel({ product, selectedVariant, onSelectVariant }: Ad
             </span>
             <br />
             This item is made to order — place it now and it ships when ready.
-            {needsPrepayment && " Preorders are paid in advance."}
+            {deposit && (
+              <>
+                <br />
+                <span className="font-medium">{deposit}</span> — the rest is due on delivery.
+              </>
+            )}
           </span>
         </div>
       ) : (

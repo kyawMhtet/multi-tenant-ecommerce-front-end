@@ -13,17 +13,31 @@ import type {
 // so both rulings below are consequential and neither is casually undoable.
 
 /**
- * Transfers waiting on a human, 25 to a page.
+ * Transfers waiting on a human, 25 to a page, oldest first.
  *
- * Includes invoices with NO proof uploaded, ordered after the ones that have
- * a screenshot. That's deliberate on the backend and must be preserved here:
- * a shop that asked for bank details and then went quiet is either a payment
- * that arrived without a screenshot or a shop that needs chasing, and hiding
- * those would make the queue look finished when it isn't.
+ * Every row here has a screenshot attached — scopeAwaitingApproval() requires
+ * proof_path, so this is a true queue: one decision per row. Proofless intents
+ * used to be mixed in and are now their own list; see below.
  */
 export function getPendingInvoices(page = 1): Promise<PaginatedResponse<PlatformInvoice>> {
   return platformApiFetch<PaginatedResponse<PlatformInvoice>>(
     `/api/v1/platform/billing/pending?page=${page}`,
+  );
+}
+
+/**
+ * Shops that asked how to pay and have sent nothing, oldest first.
+ *
+ * A chase list, not a queue: proof_url is always null, so there is nothing to
+ * rule on. It is NOT read-only though — a shop that transfers and forgets to
+ * upload is common on this rail, so a payment spotted on the bank statement
+ * still has to be settleable from here.
+ */
+export function getAwaitingTransferInvoices(
+  page = 1,
+): Promise<PaginatedResponse<PlatformInvoice>> {
+  return platformApiFetch<PaginatedResponse<PlatformInvoice>>(
+    `/api/v1/platform/billing/awaiting-transfer?page=${page}`,
   );
 }
 

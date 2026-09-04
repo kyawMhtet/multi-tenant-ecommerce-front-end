@@ -19,6 +19,10 @@ const CONFIRM_POLL_WINDOW_MS = 15000;
 const REVIEW_POLL_INTERVAL_MS = 20_000;
 
 interface UseBillingOptions {
+  // GET /api/v1/billing sits behind `role:owner`, so a manager or cashier
+  // asking for it gets a guaranteed 403. The app-wide banner passes false for
+  // them rather than firing a doomed request on every screen.
+  enabled?: boolean;
   // Set only on the Stripe return trip. It says "a confirmation is expected
   // shortly", NOT that one has happened — nothing about this flag may be read
   // as the payment having succeeded. Only the payload it re-reads says that.
@@ -44,6 +48,7 @@ interface UseBillingOptions {
  * it's one cache entry shared rather than a request per surface.
  */
 export function useBilling({
+  enabled = true,
   pollWhileConfirming = false,
   pollWhileAwaitingReview = false,
 }: UseBillingOptions = {}) {
@@ -54,6 +59,7 @@ export function useBilling({
   return useQuery({
     queryKey: ["billing"],
     queryFn: getBilling,
+    enabled,
     refetchOnMount: "always",
     // The card burst is time-bounded rather than "stop once it looks
     // confirmed". There is no reliable client-side signal for that: a shop

@@ -34,6 +34,7 @@ import {
   typography,
 } from "@/lib/design-tokens";
 import { PreorderBadge } from "@/components/admin/PreorderBadge";
+import { PaymentStatusBadge } from "@/components/admin/PaymentStatusBadge";
 import { DispatchBadge } from "@/components/admin/DispatchBadge";
 import { cn } from "@/lib/utils";
 
@@ -238,6 +239,13 @@ export default function OrdersPage() {
                             three weeks is indistinguishable from one nobody
                             has picked up. */}
                         {order.has_preorder_items && <PreorderBadge />}
+                        {/* A deposit landed, the balance hasn't. `status` stays
+                            "pending" for it by design, so this column would
+                            otherwise show a committed customer and a part-
+                            collected sale as an order nothing has happened to. */}
+                        {order.payment_status === "partial" && (
+                          <PaymentStatusBadge status="partial" />
+                        )}
                         {/* Same reasoning, other direction: a
                             cash-on-delivery order is dispatched while still
                             "pending", so neither the status nor the payment

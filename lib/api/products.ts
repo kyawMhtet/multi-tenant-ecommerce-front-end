@@ -19,10 +19,20 @@ import type {
  * rule accepts over multipart), and a null lead time goes as "" —
  * ConvertEmptyStringsToNull turns that back into null server-side, which is
  * the only way to express "no estimate" on this transport.
+ *
+ * preorder_deposit_percent goes as a plain integer string, and 0 is a real
+ * value that must be sent — it's how a shop turns a deposit back off. The
+ * boolean this replaced was declared on the payload types and never appended
+ * here at all, so every prepayment setting the three forms collected was
+ * silently dropped on the way out.
  */
 function appendPreorderFields(
   formData: FormData,
-  payload: { allow_preorder?: boolean; preorder_lead_time_days?: number | null },
+  payload: {
+    allow_preorder?: boolean;
+    preorder_lead_time_days?: number | null;
+    preorder_deposit_percent?: number;
+  },
   key: (field: string) => string = (field) => field,
 ): void {
   if (payload.allow_preorder !== undefined) {
@@ -33,6 +43,52 @@ function appendPreorderFields(
       key("preorder_lead_time_days"),
       payload.preorder_lead_time_days === null ? "" : String(payload.preorder_lead_time_days),
     );
+  }
+  if (payload.preorder_deposit_percent !== undefined) {
+    formData.append(
+      key("preorder_deposit_percent"),
+      String(payload.preorder_deposit_percent),
+    );
+  }
+}
+
+/**
+ * The promotion, encoded for the method-spoofed multipart PATCH.
+ *
+ * Each key is appended only when the caller actually set it, which is what
+ * makes a promotion survive a save that says nothing about it — the backend
+ * keys on the field being PRESENT, so appending an empty discount_type
+ * "just in case" would silently withdraw every promotion the stock form
+ * touched.
+ *
+ * A null goes as "": ConvertEmptyStringsToNull turns that back into a real
+ * null server-side, which is the only way to express one on this transport.
+ * That is also how a promotion is WITHDRAWN — `{ discount_type: null }` on
+ * its own, with the value and both dates left out entirely, because the
+ * server clears them itself.
+ */
+function appendDiscountFields(
+  formData: FormData,
+  payload: Pick<
+    UpdateVariantPayload,
+    "discount_type" | "discount_value" | "discount_starts_at" | "discount_ends_at"
+  >,
+  key: (field: string) => string = (field) => field,
+): void {
+  if (payload.discount_type !== undefined) {
+    formData.append(key("discount_type"), payload.discount_type ?? "");
+  }
+  if (payload.discount_value !== undefined) {
+    formData.append(key("discount_value"), String(payload.discount_value));
+  }
+  // Already carrying the shop's UTC offset (see lib/discount.ts) — a bare
+  // date would be parsed as UTC midnight, which is the evening before in
+  // every zone this is sold in.
+  if (payload.discount_starts_at !== undefined) {
+    formData.append(key("discount_starts_at"), payload.discount_starts_at ?? "");
+  }
+  if (payload.discount_ends_at !== undefined) {
+    formData.append(key("discount_ends_at"), payload.discount_ends_at ?? "");
   }
 }
 
@@ -94,6 +150,7 @@ export function createProduct(payload: StoreProductPayload): Promise<Product> {
   formData.append("variant[unit]", payload.variant.unit);
   formData.append("variant[current_stock]", String(payload.variant.current_stock));
   appendPreorderFields(formData, payload.variant, (field) => `variant[${field}]`);
+  appendDiscountFields(formData, payload.variant, (field) => `variant[${field}]`);
   payload.images?.forEach((file) => formData.append("images[]", file));
 
   return apiFetch<ApiResource<Product>>("/api/v1/products", {
@@ -170,6 +227,7 @@ export function addVariant(
     formData.append("current_stock", String(payload.current_stock));
   }
   appendPreorderFields(formData, payload);
+  appendDiscountFields(formData, payload);
   payload.images?.forEach((file) => formData.append("images[]", file));
 
   return apiFetch<ApiResource<ProductVariant>>(`/api/v1/products/${productId}/variants`, {
@@ -219,6 +277,7 @@ export function updateVariant(
     formData.append("is_active", payload.is_active ? "1" : "0");
   }
   appendPreorderFields(formData, payload);
+  appendDiscountFields(formData, payload);
   payload.images?.forEach((file) => formData.append("images[]", file));
   payload.remove_image_ids?.forEach((imageId) =>
     formData.append("remove_image_ids[]", String(imageId)),

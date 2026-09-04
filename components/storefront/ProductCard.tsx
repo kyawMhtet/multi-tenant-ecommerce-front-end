@@ -5,8 +5,10 @@ import { Plus } from "lucide-react";
 import { useCart } from "@/components/storefront/CartProvider";
 import { formatMoney } from "@/lib/currency";
 import {
+  aggregatePreorderDepositPercent,
   aggregatePreorderLeadTime,
   aggregateStockStatus,
+  depositBadgeText,
   preorderWaitText,
 } from "@/lib/preorder";
 import { storefrontStockLabel, storefrontType } from "@/lib/design-tokens";
@@ -16,10 +18,18 @@ import { cn } from "@/lib/utils";
 type StockStatus = StorefrontProductVariant["stock_status"];
 
 function priceLabel(variants: StorefrontProductVariant[], currency: string | null): string {
-  const prices = variants.map((v) => Number(v.selling_price));
+  const prices = variants.map((v) => Number(v.sale_price ?? v.selling_price));
   const min = Math.min(...prices);
   const max = Math.max(...prices);
   return min === max ? formatMoney(min, currency) : `from ${formatMoney(min, currency)}`;
+}
+
+function discountLabel(variants: StorefrontProductVariant[]): string | null {
+  const discounts = variants
+    .map((variant) => variant.discount_percent)
+    .filter((percent): percent is number => percent !== null && percent > 0);
+  if (discounts.length === 0) return null;
+  return `${Math.max(...discounts)}% off`;
 }
 
 // A pill over the image — amber for the low-stock nudge, sky for preorder
@@ -57,6 +67,14 @@ export function ProductCard({ product, currency, index = 0 }: ProductCardProps) 
   // preorders; an in-stock product never advertises one.
   const preorderWait =
     status === "preorder" ? preorderWaitText(aggregatePreorderLeadTime(product.variants)) : null;
+  // Gated on the same status as the wait: a product with stock on the shelf
+  // ships today and asks for nothing up front, whatever its variants are set
+  // to for when they run out.
+  const depositBadge =
+    status === "preorder"
+      ? depositBadgeText(aggregatePreorderDepositPercent(product.variants))
+      : null;
+  const discount = discountLabel(product.variants);
 
   // Quick-add only makes sense when there's a single variant and it's
   // buyable — anything with options sends the customer to the product page
@@ -70,12 +88,12 @@ export function ProductCard({ product, currency, index = 0 }: ProductCardProps) 
         variantSlug: firstVariant.slug,
         productName: product.name,
         variantLabel: null,
-        unitPrice: firstVariant.selling_price,
+        unitPrice: firstVariant.sale_price ?? firstVariant.selling_price,
         currency,
         imageUrl: (firstVariant.images[0] ?? cover)?.url ?? null,
         stockStatus: firstVariant.stock_status,
         preorderLeadTimeDays: firstVariant.preorder_lead_time_days,
-        preorderRequiresPrepayment: firstVariant.preorder_requires_prepayment,
+        preorderDepositPercent: firstVariant.preorder_deposit_percent,
       },
       1,
     );
@@ -140,16 +158,34 @@ export function ProductCard({ product, currency, index = 0 }: ProductCardProps) 
             {product.name}
           </Link>
         </h3>
-        <div className="flex items-baseline justify-between gap-2">
-          <span className={cn(storefrontType.price, "text-storefront-ink")}>
-            {priceLabel(product.variants, currency)}
-          </span>
+        <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-1">
+          <div className="flex flex-wrap items-baseline gap-2">
+            <span className={cn(storefrontType.price, "text-storefront-ink")}>
+              {priceLabel(product.variants, currency)}
+            </span>
+            {discount && (
+              <span className="rounded-full bg-rose-100 px-1.5 py-0.5 text-[0.625rem] font-bold tracking-[0.06em] text-rose-800 uppercase">
+                {discount}
+              </span>
+            )}
+          </div>
           {product.variants.length > 1 && (
             <span className="text-xs text-muted-foreground">{product.variants.length} options</span>
           )}
         </div>
+        {/* Deposit sits WITH the wait, in the same sky palette, rather than as
+            a second pill over the image: they are two halves of one promise
+            (how long, and how much now), and splitting them across the card
+            makes the customer assemble it themselves. */}
         {preorderWait && (
-          <span className="text-xs font-medium text-sky-700">{preorderWait}</span>
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span className="text-xs font-medium text-sky-700">{preorderWait}</span>
+            {depositBadge && (
+              <span className="rounded-full bg-sky-100 px-1.5 py-0.5 text-[0.625rem] font-bold tracking-[0.06em] text-sky-900 uppercase">
+                {depositBadge}
+              </span>
+            )}
+          </div>
         )}
       </div>
     </article>

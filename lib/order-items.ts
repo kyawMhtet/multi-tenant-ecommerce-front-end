@@ -1,4 +1,4 @@
-import type { OrderItem } from "@/lib/types";
+import type { Order, OrderItem } from "@/lib/types";
 
 // Attribute keys come from the shop's own variant setup ("size", "color"),
 // not a fixed enum, so this only title-cases the first letter rather than
@@ -58,4 +58,34 @@ export function hasDeliveryLine(order: {
 }): boolean {
   if (order.delivery_fee === undefined) return false;
   return order.fulfillment_type === "delivery" || Number(order.delivery_fee) > 0;
+}
+
+/**
+ * How much has actually landed against this order.
+ *
+ * A deposit and its later balance are two payment rows against one order, so
+ * this is a SUM, never a flag — the same arithmetic WebhookProcessor uses
+ * server-side to decide whether an order is settled or merely part-paid.
+ *
+ * Returns NULL, not 0, when the payments aren't loaded: OrderResource only
+ * includes them on GET /orders/{id}, and answering "nothing has been paid" for
+ * an order this app simply hasn't asked about would put a wrong balance on
+ * screen. Callers render the figure only when they have one.
+ */
+export function orderAmountPaid(order: Order): number | null {
+  if (!order.payments) return null;
+
+  const total = order.payments
+    .filter((payment) => payment.status === "success")
+    .reduce((sum, payment) => sum + Number(payment.amount), 0);
+
+  return Number.isFinite(total) ? Math.round(total * 100) / 100 : null;
+}
+
+/** What the customer still owes — collected on delivery for a deposit order. */
+export function orderBalanceDue(order: Order): number | null {
+  const paid = orderAmountPaid(order);
+  if (paid === null) return null;
+
+  return Math.max(0, Math.round(((Number(order.total) || 0) - paid) * 100) / 100);
 }

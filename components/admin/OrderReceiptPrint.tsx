@@ -2,6 +2,7 @@ import { OrderItemLabel } from "@/components/admin/OrderItemLabel";
 import { formatCurrency, formatQuantity } from "@/lib/currency";
 import { hasDeliveryLine } from "@/lib/order-items";
 import { initials } from "@/lib/initials";
+import { paymentStatusLabel } from "@/lib/design-tokens";
 import type { Order } from "@/lib/types";
 
 const dateFormatter = new Intl.DateTimeFormat(undefined, {
@@ -69,7 +70,7 @@ export function OrderReceiptPrint({ order, shopName }: { order: Order; shopName?
         {partyName && <MetaRow label={partyLabel} value={partyName} />}
         <div className="flex items-baseline justify-between gap-6">
           <dt className="text-muted-foreground">Payment</dt>
-          <dd className="font-medium capitalize">{order.payment_status}</dd>
+          <dd className="font-medium">{paymentStatusLabel[order.payment_status] ?? order.payment_status}</dd>
         </div>
       </dl>
 

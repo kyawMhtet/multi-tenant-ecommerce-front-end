@@ -12,7 +12,7 @@ import {
 import { OrderItemLabel } from "@/components/admin/OrderItemLabel";
 import { formatQuantity } from "@/lib/currency";
 import type { Order } from "@/lib/types";
-import { controls } from "@/lib/design-tokens";
+import { controls, paymentStatusLabel } from "@/lib/design-tokens";
 
 const priceFormatter = new Intl.NumberFormat(undefined, {
   minimumFractionDigits: 2,
@@ -29,7 +29,8 @@ export function ReceiptView({ order, onNewSale }: { order: Order; onNewSale: () 
         <div className="flex flex-col gap-1">
           <h1 className="text-xl font-semibold tracking-tight">Sale complete</h1>
           <p className="text-sm text-muted-foreground">
-            Order {order.order_number} · Payment {order.payment_status}
+            Order {order.order_number} · Payment{" "}
+            {paymentStatusLabel[order.payment_status] ?? order.payment_status}
           </p>
         </div>
       </div>

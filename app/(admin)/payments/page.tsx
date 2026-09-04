@@ -4,6 +4,7 @@ import Link from "next/link";
 import { toast } from "sonner";
 import { ArrowRight, CreditCard, ExternalLink, Wallet } from "lucide-react";
 import { billingRefusalToast, parseBillingError, BILLING_PATH } from "@/lib/billing-error";
+import { useRole } from "@/lib/hooks/useRole";
 import { usePaymentMethods } from "@/lib/hooks/usePaymentMethods";
 import { useStripeStatus } from "@/lib/hooks/useStripeStatus";
 import { useStripeOnboardingLink } from "@/lib/hooks/useStripeOnboardingLink";
@@ -13,17 +14,21 @@ import { EmptyState } from "@/components/shared/EmptyState";
 import { ApiErrorState } from "@/components/shared/ApiErrorState";
 import { LoadingState } from "@/components/shared/LoadingState";
 import { PaymentMethodCard } from "@/components/admin/PaymentMethodCard";
+import { RoleRequiredNotice } from "@/components/admin/RoleRequiredNotice";
 import { Button, buttonVariants } from "@/components/ui/button";
 import type { PaymentMethodConfig } from "@/lib/types";
 import { controls } from "@/lib/design-tokens";
 import { cn } from "@/lib/utils";
 
 export default function PaymentsSettingsPage() {
-  const { data: methods, isPending, error: queryError } = usePaymentMethods();
+  const { isOwner } = useRole();
+  const { data: methods, isPending, error: queryError } = usePaymentMethods({
+    enabled: isOwner,
+  });
 
   // Only fetched to answer "can this shop take card payments yet" — a shop
   // running cash + QR (most of them) never acts on it.
-  const { data: stripeStatus, error: stripeError } = useStripeStatus();
+  const { data: stripeStatus, error: stripeError } = useStripeStatus({ enabled: isOwner });
   const onboardingLink = useStripeOnboardingLink();
 
   // A plan refusal on the Stripe read is not a Stripe problem — it means
@@ -106,6 +111,20 @@ export default function PaymentsSettingsPage() {
     : undefined;
 
   const enabledCount = ordered?.filter((m) => m.is_enabled).length ?? 0;
+
+  if (!isOwner) {
+    return (
+      <PageContainer size="lg">
+        <div className="flex flex-col gap-6">
+          <PageHeader
+            title="Payments"
+            description="How customers pay you on your storefront."
+          />
+          <RoleRequiredNotice minimum="owner" />
+        </div>
+      </PageContainer>
+    );
+  }
 
   return (
     <PageContainer size="lg">

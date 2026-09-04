@@ -13,6 +13,13 @@ interface AuthCardProps {
   footerText: string;
   footerLinkHref: string;
   footerLinkLabel: string;
+  // "auth" (max-w-md) is the width a stack of single-column fields wants, and
+  // the default for that reason. Signup opts into "md" because it carries a
+  // side-by-side row (currency + timezone): at the auth width those two split
+  // ~400px between them, which truncates "MMK — Myanmar Kyat" and every
+  // timezone label. Widening the container is the fix rather than stacking
+  // them, since the pair genuinely belongs on one line.
+  size?: "auth" | "md";
 }
 
 export function AuthCard({
@@ -22,10 +29,11 @@ export function AuthCard({
   footerText,
   footerLinkHref,
   footerLinkLabel,
+  size = "auth",
 }: AuthCardProps) {
   return (
     <div className="flex min-h-screen flex-col justify-center bg-muted/40">
-      <PageContainer size="auth">
+      <PageContainer size={size}>
         <div className="flex flex-col gap-6">
           {/* Heading sits above the card, not inside it, so the card reads
               as just the form — fewer nested boxes for the eye to unpack. */}

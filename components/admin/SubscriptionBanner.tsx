@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { AlertTriangle, ArrowRight, Sparkles } from "lucide-react";
 import { useBilling } from "@/lib/hooks/useBilling";
+import { useRole } from "@/lib/hooks/useRole";
 import { summariseSubscription } from "@/lib/billing";
 import { BILLING_PATH } from "@/lib/billing-error";
 import { notice, noticeTone } from "@/lib/design-tokens";
@@ -24,7 +25,8 @@ import { cn } from "@/lib/utils";
  */
 export function SubscriptionBanner() {
   const pathname = usePathname();
-  const { data } = useBilling();
+  const { isOwner } = useRole();
+  const { data } = useBilling({ enabled: isOwner });
 
   // The billing screen shows all of this in full, with the plans underneath
   // it. A banner repeating it directly above would just push the actual fix

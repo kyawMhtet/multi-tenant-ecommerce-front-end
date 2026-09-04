@@ -26,7 +26,13 @@ const dateFormatter = new Intl.DateTimeFormat(undefined, {
  * Renders nothing for the ordinary case: an order that was never paid, or
  * was never cancelled, owes nobody anything.
  */
-export function OrderRefundPanel({ order }: { order: Order }) {
+export function OrderRefundPanel({
+  order,
+  canRefund = true,
+}: {
+  order: Order;
+  canRefund?: boolean;
+}) {
   const isRefunded = Boolean(order.refunded_at);
 
   if (!order.refund_required && !isRefunded) return null;
@@ -69,13 +75,13 @@ export function OrderRefundPanel({ order }: { order: Order }) {
               {formatCurrency(order.total, order.currency)}
             </span>
           </div>
-          <RefundOrderDialog order={order} />
+          {canRefund && <RefundOrderDialog order={order} />}
         </div>
 
         <p className="text-sm text-rose-900/80">
-          This order was paid and then cancelled. The money went straight from the customer to
-          you, so nothing has been returned automatically — send it back yourself, then record it
-          here.
+          {canRefund
+            ? "This order was paid and then cancelled. The money went straight from the customer to you, so nothing has been returned automatically — send it back yourself, then record it here."
+            : "This order was paid and then cancelled, so the shop still owes the customer this money. A manager or the shop owner records the refund once it's been sent."}
         </p>
       </CardContent>
     </Card>

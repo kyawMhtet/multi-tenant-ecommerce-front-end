@@ -177,6 +177,71 @@ export function isInvoicePayable(invoice: SubscriptionInvoice): boolean {
   return invoice.status === "pending" || invoice.status === "failed";
 }
 
+/**
+ * Why a shop is looking at more than one open invoice.
+ *
+ * Newly possible, and alarming on a billing screen without a sentence of
+ * explanation. Asking to pay for a different plan used to void the earlier
+ * pending invoice unconditionally; it no longer does so when that invoice
+ * carries a screenshot, because the screenshot represents money the shop
+ * actually wired and voiding it hid that transfer from the people who have to
+ * match it against a bank statement. So a shop that transferred for Starter,
+ * uploaded proof, then chose Pro now holds SUB-11 "Awaiting review" and SUB-12
+ * "Awaiting payment" at the same time — two correct rows, and nothing saying
+ * why both are outstanding.
+ *
+ * Returns null unless at least one open invoice is UNDER REVIEW, because that
+ * is the only state this sentence describes. Two proofless intents cannot
+ * coexist (the second ask still voids the first), and a rejected invoice is
+ * also payable but is not awaiting anything — "Rejected" already explains
+ * itself, and saying we are still checking it would be false.
+ *
+ * Deliberately says nothing about where either row stands — that is the status
+ * column's monopoly, via invoiceStatusLabel(). All this adds is the one rule
+ * that holds across both: nothing has been taken, and the plan moves only on a
+ * CONFIRMED transfer.
+ */
+export function describeOpenInvoices(invoices: SubscriptionInvoice[]): string | null {
+  // Manual rail only. A proof_url implies the transfer rail already, and a
+  // pending CARD invoice is an abandoned Checkout rather than something the
+  // shop has been asked to pay — a different story this must not narrate.
+  const open = invoices.filter(
+    (invoice) => invoice.status === "pending" && invoice.rail === "manual",
+  );
+  const underReview = open.filter((invoice) => invoice.proof_url);
+  const awaitingPayment = open.filter((invoice) => !invoice.proof_url);
+
+  if (underReview.length === 0 || open.length < 2) return null;
+
+  const parts = [
+    underReview.length === 1
+      ? `We're still checking the transfer you sent for ${underReview[0].plan_label} (${underReview[0].reference}).`
+      : `We're still checking the transfers you've sent (${underReview
+          .map((invoice) => invoice.reference)
+          .join(", ")}).`,
+  ];
+
+  // Named by reference rather than by position: the table is newest-first, so
+  // "the one below" would point at the older row.
+  if (awaitingPayment.length === 1) {
+    parts.push(
+      `${awaitingPayment[0].reference} is a newer request for ${awaitingPayment[0].plan_label} — you only owe it if you go ahead with that plan change.`,
+    );
+  } else if (awaitingPayment.length > 1) {
+    parts.push(
+      "The newer invoices are plan requests — you only owe them if you go ahead with those changes.",
+    );
+  }
+
+  // Count-agnostic on purpose: "neither" breaks the moment a third row
+  // appears, and the reassurance is identical whatever the count.
+  parts.push(
+    "Nothing here is a charge we've taken from you — your plan moves only once we've confirmed a transfer.",
+  );
+
+  return parts.join(" ");
+}
+
 export function invoiceStatusStyle(status: string): string {
   return invoiceStatusClassName[status] ?? "";
 }

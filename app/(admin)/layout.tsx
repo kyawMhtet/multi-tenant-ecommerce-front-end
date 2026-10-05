@@ -90,9 +90,9 @@ export default function AdminLayout({
   }
 
   return (
-    <div className="min-h-screen bg-muted/40 md:flex print:bg-white">
+    <div className="min-h-screen bg-muted/40 md:flex md:h-screen md:overflow-hidden print:bg-white">
       <AdminSidebar />
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <AdminMobileNav />
         {/* Above the content of every admin screen, not inside one: a lapsed
             or overdue subscription is a fact about the whole app, and a
@@ -101,7 +101,7 @@ export default function AdminLayout({
             never fires a billing request from /login or /register. */}
         <ShopSuspendedNotice />
         <SubscriptionBanner />
-        <main className="min-w-0 flex-1">
+        <main className="min-h-0 min-w-0 flex-1 overflow-y-auto">
           {me.isError ? (
             <PageContainer size="md">
               <ApiErrorState error={me.error} fallback="Could not load your account." />

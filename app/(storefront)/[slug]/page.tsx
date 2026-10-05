@@ -4,6 +4,7 @@ import { use, useMemo, useState } from "react";
 import { ApiError } from "@/lib/api-client";
 import { usePublicProduct } from "@/lib/hooks/usePublicProduct";
 import { ErrorState } from "@/components/shared/ErrorState";
+import { RichText } from "@/components/shared/RichText";
 import { AddToCartPanel } from "@/components/storefront/AddToCartPanel";
 import { ProductGallery } from "@/components/storefront/ProductGallery";
 import { ShopFooter } from "@/components/storefront/ShopFooter";
@@ -94,7 +95,7 @@ export default function StorefrontProductPage({
             {product.name}
           </h1>
           {product.description && (
-            <p className="text-sm leading-relaxed text-muted-foreground">{product.description}</p>
+            <RichText html={product.description} />
           )}
         </div>
 

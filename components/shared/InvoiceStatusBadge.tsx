@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
  * The one pill allowed to say where an invoice stands.
  *
  * In shared/ because both apps render it over the same rows from opposite
- * sides — the shop's own payment history and the platform's ledger and review
+ * sides — the shop's own invoices and the platform's ledger and review
  * queue — and the whole point of invoiceStatusLabel() is that those three can
  * never disagree. A pending invoice with a screenshot reads "Awaiting review"
  * to everyone; only `status: "paid"` produces the word "Paid".

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ExternalLink, ReceiptText } from "lucide-react";
+import { ExternalLink, Info, ReceiptText } from "lucide-react";
 import { useBillingInvoices } from "@/lib/hooks/useBillingInvoices";
 import { useBilling } from "@/lib/hooks/useBilling";
 import { InvoiceProofField } from "@/components/admin/InvoiceProofField";
@@ -19,13 +19,20 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { formatBillingDate, isInvoicePayable } from "@/lib/billing";
+import { describeOpenInvoices, formatBillingDate, isInvoicePayable } from "@/lib/billing";
 import { formatMoney } from "@/lib/currency";
 import type { SubscriptionInvoice } from "@/lib/types";
 import { typography } from "@/lib/design-tokens";
 import { cn } from "@/lib/utils";
 
 const COLUMNS = ["Reference", "Plan", "Period", "Amount", "Status", ""] as const;
+
+// Not "Payment history". The newest row here is routinely an unpaid intent the
+// shop raised seconds ago by clicking "Pay by bank transfer" — filing that
+// under "history" tells the shop it has paid something it hasn't. "Invoices"
+// is the one word that covers a charge raised and a charge settled without
+// claiming either.
+const TITLE = "Invoices";
 
 function InvoiceTableHead() {
   return (
@@ -41,6 +48,25 @@ function InvoiceTableHead() {
   );
 }
 
+/**
+ * The explanation for two live invoices at once — see describeOpenInvoices().
+ *
+ * Plain muted text rather than one of the noticeTone washes, and that is the
+ * considered choice: a notice's colour is the only thing in this app telling
+ * the reader how urgently to act, and here there is nothing to act on. An
+ * amber strip would manufacture exactly the alarm this sentence exists to
+ * remove, and a third tone meaning "merely explaining" is the tone system
+ * coming apart.
+ */
+function OpenInvoicesNote({ note }: { note: string }) {
+  return (
+    <div className="flex gap-3 border-b px-5 py-4">
+      <Info className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+      <p className={cn(typography.muted, "text-pretty")}>{note}</p>
+    </div>
+  );
+}
+
 function period(invoice: SubscriptionInvoice): string {
   const from = formatBillingDate(invoice.period_start);
   const to = formatBillingDate(invoice.period_end);
@@ -49,7 +75,13 @@ function period(invoice: SubscriptionInvoice): string {
 }
 
 /**
- * Every charge this shop has been raised, paid or not.
+ * Every invoice this shop has been raised, paid or not.
+ *
+ * A shop can hold TWO payable invoices at once now: a transfer it has already
+ * sent and uploaded proof for is no longer voided when it asks to pay for a
+ * different plan, because voiding it hid real money from the reviewers who
+ * have to match it. Both rows render correctly on their own — the explanation
+ * for why both are outstanding is OpenInvoicesNote above.
  *
  * The status column is the only thing in this app allowed to say an invoice is
  * settled, and it says so only when the server does — invoiceStatusLabel()
@@ -81,13 +113,18 @@ export function BillingInvoiceHistory() {
   const isAwaitingReview = data?.data.some(isInvoicePayable) ?? false;
   useBilling({ pollWhileAwaitingReview: isAwaitingReview });
 
+  // Scoped to the CURRENT page, for the same reason the poll above is: open
+  // invoices are newest-first on page one, so a shop paging back through old
+  // rows is reading history and has nothing outstanding to explain.
+  const openInvoicesNote = data ? describeOpenInvoices(data.data) : null;
+
   if (error) {
-    return <ApiErrorState error={error} fallback="Could not load your payment history." />;
+    return <ApiErrorState error={error} fallback="Could not load your invoices." />;
   }
 
   if (isPending) {
     return (
-      <TableCard title="Payment history">
+      <TableCard title={TITLE}>
         <Table>
           <InvoiceTableHead />
           <TableBody>
@@ -100,12 +137,12 @@ export function BillingInvoiceHistory() {
 
   if (data.data.length === 0) {
     return (
-      <TableCard title="Payment history">
+      <TableCard title={TITLE}>
         <EmptyState
           icon={ReceiptText}
           variant="inline"
-          title="No payments yet"
-          description="Charges appear here once you start a plan."
+          title="No invoices yet"
+          description="Invoices appear here once you choose a plan."
         />
       </TableCard>
     );
@@ -113,8 +150,8 @@ export function BillingInvoiceHistory() {
 
   return (
     <TableCard
-      title="Payment history"
-      description="Every charge raised against your shop."
+      title={TITLE}
+      description="Everything billed to your shop, paid or not."
       footer={
         <TablePagination
           meta={data.meta}
@@ -124,6 +161,8 @@ export function BillingInvoiceHistory() {
         />
       }
     >
+      {openInvoicesNote && <OpenInvoicesNote note={openInvoicesNote} />}
+
       <Table>
         <InvoiceTableHead />
         <TableBody>

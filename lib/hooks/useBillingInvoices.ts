@@ -12,7 +12,7 @@ import { isInvoicePayable } from "@/lib/billing";
 const REVIEW_POLL_INTERVAL_MS = 20_000;
 
 /**
- * Payment history. The key starts with ["billing"] so anything that changes
+ * The shop's own invoices. The key starts with ["billing"] so anything that changes
  * the subscription — subscribing, uploading proof, cancelling — invalidates
  * this too through React Query's prefix matching, without each mutation having
  * to name both keys.

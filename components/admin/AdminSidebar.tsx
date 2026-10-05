@@ -190,7 +190,7 @@ function SidebarNav({
 // app/(admin)/layout.tsx) covers navigation on small screens instead.
 export function AdminSidebar() {
   return (
-    <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r bg-background md:flex print:hidden">
+    <aside className="hidden h-screen w-64 shrink-0 flex-col border-r bg-background md:flex print:hidden">
       <SidebarNav showBell />
     </aside>
   );

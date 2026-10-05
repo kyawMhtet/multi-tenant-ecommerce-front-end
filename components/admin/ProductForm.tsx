@@ -1,7 +1,6 @@
 import { controls } from "@/lib/design-tokens";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -12,6 +11,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ProductImagePicker } from "@/components/admin/ProductImagePicker";
+import { SimpleEditor } from "@/components/tiptap-templates/simple/simple-editor";
 import { useCategories } from "@/lib/hooks/useCategories";
 import type { ProductImage } from "@/lib/types";
 
@@ -85,16 +85,14 @@ export function ProductForm({
         {errors.name && <span className="text-sm text-destructive">{errors.name}</span>}
       </Label>
 
-      <Label className="flex flex-col items-stretch gap-1">
+      <div className="flex flex-col items-stretch gap-1">
         <span className="text-sm">Description</span>
-        <Textarea
-          placeholder="What customers should know before buying"
-          value={form.description}
-          onChange={(e) => onFieldChange("description", e.target.value)}
-          rows={3}
-          className={controls.textarea}
+        <SimpleEditor
+          content={form.description}
+          onChange={(content) => onFieldChange("description", content)}
+          className="product-description-editor"
         />
-      </Label>
+      </div>
 
       <ProductImagePicker
         existingImages={existingImages}
